@@ -80,3 +80,35 @@ async def test_child_cannot_grant_consent(client, fake_stt):
     cid = await add_child(client, reg["access_token"])
     ctok = await _child_token(client, reg, cid)
     assert (await client.put("/settings/ai-consent", json={"granted": True}, headers=H(ctok))).status_code == 403
+
+
+def test_stt_configured_without_api_key_for_self_hosted(monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "stt_enabled", True)
+    monkeypatch.setattr(settings, "stt_api_key", "")
+    assert stt.is_configured() is True
+    monkeypatch.setattr(settings, "stt_enabled", False)
+    assert stt.is_configured() is False
+
+
+async def test_transcribe_omits_auth_header_without_key(monkeypatch):
+    import httpx
+
+    from app.config import settings
+
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["auth"] = request.headers.get("authorization")
+        seen["url"] = str(request.url)
+        return httpx.Response(200, json={"text": "قل"})
+
+    transport = httpx.MockTransport(handler)
+    real = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: real(transport=transport, **kw))
+    monkeypatch.setattr(settings, "stt_enabled", True)
+    monkeypatch.setattr(settings, "stt_api_key", "")
+    monkeypatch.setattr(settings, "stt_base_url", "http://stt:8000/v1")
+    assert await stt.transcribe(b"abc", "audio/webm") == "قل"
+    assert seen["auth"] is None and seen["url"] == "http://stt:8000/v1/audio/transcriptions"
