@@ -8,6 +8,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+import os
+
+os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite://")
+
 from app.database import Base
 from app import models
 from app.models import (

@@ -1,0 +1,16 @@
+# Lingkungan virtual & cache Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Rahasia lokal (gunakan .env.example sebagai contoh)
+.env
+.env.*
+!.env.example
+
+# Data lokal
+*.db
+*.sqlite3
+data/

@@ -48,9 +48,9 @@ class PublicFamilyChildrenOut(BaseModel):
 
 
 class ChildLoginIn(BaseModel):
-    access_code: str
+    access_code: str = Field(max_length=16)
     child_id: uuid.UUID
-    pin: str = ""
+    pin: str = Field(default="", max_length=32)
 
 
 class MemberCreateIn(BaseModel):
