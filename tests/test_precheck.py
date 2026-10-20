@@ -27,9 +27,9 @@ def test_empty_transcript_is_unavailable_not_100_percent():
 def fake_stt(monkeypatch):
     calls = []
 
-    async def fake(audio, content_type="audio/webm"):
+    async def fake(audio, content_type="audio/webm", reference_hint=None):
         calls.append(len(audio))
-        return "قل اعوذ برب الناس"
+        return stt.SttResult("قل اعوذ برب الناس", None)
 
     monkeypatch.setattr(stt, "is_configured", lambda: True)
     monkeypatch.setattr(stt, "transcribe", fake)

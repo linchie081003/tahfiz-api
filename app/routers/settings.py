@@ -43,7 +43,11 @@ async def get_ai_consent(ctx: AuthContext = Depends(require_parent), db: AsyncSe
     row = (
         await db.execute(select(models.FamilyAiConsent).where(models.FamilyAiConsent.family_id == ctx.family_id))
     ).scalar_one_or_none()
-    return {"granted": row is not None, "available": stt.is_configured()}
+    return {
+        "granted": row is not None,
+        "available": stt.is_configured(),
+        "engine": stt.engine_label(),
+    }
 
 
 @router.put("/ai-consent")

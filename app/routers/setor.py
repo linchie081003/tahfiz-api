@@ -98,8 +98,9 @@ async def _process_ai_inline(db: AsyncSession, sub: models.Submission, audio: by
     transcript = None
     reason = "disabled"
     if stt.is_configured() and await _family_consented(db, sub.family_id):
-        transcript = await stt.transcribe(audio, content_type)
-        reason = "no_transcript"
+        stt_result = await stt.transcribe(audio, content_type, reference_hint=sub.reference_text)
+        transcript = stt_result.text
+        reason = stt_result.failure or "no_transcript"
     elif stt.is_configured():
         reason = "no_consent"
     insights = (
@@ -110,6 +111,39 @@ async def _process_ai_inline(db: AsyncSession, sub: models.Submission, audio: by
     sub.ai_insights = insights
     sub.ai_status = "completed"
     sub.status = models.SubmissionStatus.pending_eval
+
+
+@router.post("/{submission_id}/reprocess-precheck", response_model=schemas.SubmissionOut)
+async def reprocess_precheck(
+    submission_id: uuid.UUID,
+    ctx: AuthContext = Depends(require_parent),
+    db: AsyncSession = Depends(get_db),
+):
+    """Jalankan ulang pra-cek setelah orang tua memberi izin di Pengaturan (setoran masih pending_eval)."""
+    sub = await db.get(models.Submission, submission_id)
+    if not sub or sub.family_id != ctx.family_id:
+        raise HTTPException(404, "Setoran tidak ditemukan")
+    if sub.status != models.SubmissionStatus.pending_eval:
+        raise HTTPException(409, "Setoran sudah dinilai")
+    path = storage.local_recording_path(sub.family_id, sub.id)
+    if not path.is_file():
+        raise HTTPException(404, "File rekaman tidak ada")
+    audio = path.read_bytes()
+    await _process_ai_inline(db, sub, audio, "audio/webm")
+    member = await db.get(models.Member, sub.member_id)
+    return schemas.SubmissionOut(
+        id=sub.id,
+        context=sub.context,
+        surah_id=sub.surah_id,
+        reference_text=sub.reference_text,
+        status=sub.status,
+        ai_status=sub.ai_status,
+        ai_insights=sub.ai_insights,
+        rubric_scores=sub.rubric_scores,
+        recording_url=storage.presigned_recording_url(sub.recording_key, sub.family_id, sub.id),
+        created_at=sub.created_at,
+        member_name=member.name if member else None,
+    )
 
 
 @router.get("/queue", response_model=list[schemas.SubmissionOut])
