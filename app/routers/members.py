@@ -4,10 +4,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import models, schemas, security
+from app import models, ratelimit, schemas, security
 from app.config import settings
 from app.database import get_db
-from app.deps import AuthContext, get_current_context, require_parent
+from app.deps import AuthContext, require_parent
 from app.services import gamification, progress
 from app.services.member_lifecycle import delete_member_and_data
 
@@ -39,13 +39,10 @@ async def list_members(ctx: AuthContext = Depends(require_parent), db: AsyncSess
 async def update_member(
     member_id: uuid.UUID,
     payload: schemas.MemberUpdateIn,
-    ctx: AuthContext = Depends(get_current_context),
+    ctx: AuthContext = Depends(require_parent),
     db: AsyncSession = Depends(get_db),
 ):
-    if ctx.role == "child" and ctx.member_id != member_id:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Hanya profil sendiri")
-    if ctx.role not in ("parent", "child"):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Tidak diizinkan")
+    """Mode usia menentukan hak dan tampilan (PRD FR-P01), jadi hanya orang tua yang boleh mengubahnya."""
     member = await db.get(models.Member, member_id)
     if not member or member.family_id != ctx.family_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Anak tidak ditemukan")
@@ -77,6 +74,7 @@ async def remove_member(
                 role="parent",
                 member_id=None,
                 expires_minutes=settings.parent_token_expire_minutes,
+                pwv=security.password_fingerprint(parent.hashed_password),
             )
     return schemas.MemberDeleteOut(access_token=new_token)
 
@@ -93,6 +91,7 @@ async def exit_impersonate(ctx: AuthContext = Depends(require_parent), db: Async
         role="parent",
         member_id=None,
         expires_minutes=settings.parent_token_expire_minutes,
+        pwv=security.password_fingerprint(parent.hashed_password),
     )
     return schemas.TokenOut(access_token=token, role="parent", family_access_code=family.access_code if family else "")
 
@@ -109,6 +108,7 @@ async def impersonate_child(member_id: uuid.UUID, ctx: AuthContext = Depends(req
         role="parent",
         member_id=member.id,
         expires_minutes=settings.parent_token_expire_minutes,
+        pwv=security.password_fingerprint(parent.hashed_password),
     )
     family = await db.get(models.Family, ctx.family_id)
     return schemas.TokenOut(access_token=token, role="parent", family_access_code=family.access_code)
@@ -116,6 +116,7 @@ async def impersonate_child(member_id: uuid.UUID, ctx: AuthContext = Depends(req
 
 @router.post("/verify-settings-pin")
 async def verify_settings_pin(payload: schemas.PinVerifyIn, ctx: AuthContext = Depends(require_parent), db: AsyncSession = Depends(get_db)):
+    ratelimit.check("settings-pin", str(ctx.subject_id), 5, 300)
     parent = await db.get(models.ParentUser, ctx.subject_id)
     if not parent or not parent.settings_pin_hash:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "PIN belum diatur")

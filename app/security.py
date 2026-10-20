@@ -1,3 +1,4 @@
+import hashlib
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -19,7 +20,20 @@ def verify_secret(raw: str, hashed: str) -> bool:
         return False
 
 
-def create_token(*, subject: uuid.UUID, family_id: uuid.UUID, role: str, member_id: uuid.UUID | None, expires_minutes: int) -> str:
+def password_fingerprint(hashed_password: str) -> str:
+    """Sidik jari hash sandi; berubah saat sandi diganti sehingga token lama otomatis tidak berlaku."""
+    return hashlib.sha256(f"{hashed_password}:{settings.jwt_secret}".encode("utf-8")).hexdigest()[:24]
+
+
+def create_token(
+    *,
+    subject: uuid.UUID,
+    family_id: uuid.UUID,
+    role: str,
+    member_id: uuid.UUID | None,
+    expires_minutes: int,
+    pwv: str | None = None,
+) -> str:
     now = datetime.now(timezone.utc)
     payload: dict[str, Any] = {
         "sub": str(subject),
@@ -29,6 +43,8 @@ def create_token(*, subject: uuid.UUID, family_id: uuid.UUID, role: str, member_
         "iat": now,
         "exp": now + timedelta(minutes=expires_minutes),
     }
+    if pwv:
+        payload["pwv"] = pwv
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
 

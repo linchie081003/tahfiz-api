@@ -1,4 +1,11 @@
+import logging
+
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+logger = logging.getLogger(__name__)
+
+_PLACEHOLDER_SECRETS = {"CHANGE_ME_IN_PRODUCTION", "change_me", "changeme", "secret"}
 
 
 class Settings(BaseSettings):
@@ -24,6 +31,25 @@ class Settings(BaseSettings):
     vapid_public_key: str = ""
     vapid_private_key: str = ""
     vapid_claims_email: str = "mailto:admin@hafiz.local"
+    rate_limit_enabled: bool = True
+    trust_proxy_headers: bool = False  # true hanya bila di belakang reverse proxy tepercaya
+
+    @model_validator(mode="after")
+    def _validate_secrets(self):
+        weak_jwt = (
+            len(self.jwt_secret) < 32
+            or self.jwt_secret in _PLACEHOLDER_SECRETS
+            or "change" in self.jwt_secret.lower()
+        )
+        weak_s3 = (not self.use_local_storage) and self.s3_secret_key == "minioadmin"
+        if self.environment.lower() not in ("development", "dev", "test"):
+            if weak_jwt:
+                raise ValueError("JWT_SECRET lemah atau masih placeholder. Isi dengan string acak minimal 32 karakter.")
+            if weak_s3:
+                raise ValueError("S3_ACCESS_KEY/S3_SECRET_KEY masih bawaan (minioadmin). Ganti sebelum produksi.")
+        elif weak_jwt:
+            logger.warning("JWT_SECRET lemah — hanya boleh untuk development.")
+        return self
 
 
 settings = Settings()
