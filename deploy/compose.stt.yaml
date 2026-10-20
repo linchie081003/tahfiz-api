@@ -1,0 +1,18 @@
+# Server transkripsi Whisper sendiri (open source, MIT) — Speaches, API kompatibel OpenAI.
+# Jalankan:  docker compose -f deploy/compose.stt.yaml up -d
+# Lalu unduh model (sekali):  lihat docs/stt-self-hosted.md
+services:
+  speaches:
+    image: ghcr.io/speaches-ai/speaches:latest-cpu   # GPU NVIDIA: pakai tag latest-cuda + compose.cuda dari repo Speaches
+    container_name: hafiz-stt
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8000:8000"   # hanya lokal; API Hafiz di mesin yang sama. Jangan buka ke internet.
+    environment:
+      STT_MODEL_TTL: "-1"            # jangan bongkar model dari memori (hindari muat ulang tiap setoran)
+      WHISPER__COMPUTE_TYPE: "int8"  # hemat RAM/CPU
+      # API_KEY: "isi-bila-server-diakses-lewat-jaringan"   # lalu isi STT_API_KEY yang sama di .env API
+    volumes:
+      - hf-hub-cache:/home/ubuntu/.cache/huggingface/hub
+volumes:
+  hf-hub-cache:

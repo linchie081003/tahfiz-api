@@ -31,12 +31,12 @@ class Settings(BaseSettings):
     vapid_public_key: str = ""
     vapid_private_key: str = ""
     vapid_claims_email: str = "mailto:admin@hafiz.local"
-    # Transkripsi pihak ketiga (API kompatibel OpenAI). Nonaktif secara bawaan.
+    # Transkripsi (API kompatibel OpenAI: Whisper sendiri/open source, Groq, OpenAI). Nonaktif bawaan.
     stt_enabled: bool = False
     stt_api_key: str = ""
     stt_base_url: str = "https://api.openai.com/v1"
     stt_model: str = "whisper-1"
-    stt_timeout_seconds: float = 25.0
+    stt_timeout_seconds: float = 45.0  # CPU lebih lambat dari GPU/cloud
     # Pengingat
     reminder_timezone: str = "Asia/Jakarta"
     rate_limit_enabled: bool = True
