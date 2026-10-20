@@ -1,56 +1,10 @@
 """Uji keamanan: pembatas percobaan, pencabutan token, hak ubah age_mode, validasi rahasia."""
 import pytest
-import pytest_asyncio
-from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-from sqlalchemy.pool import StaticPool
-
 from app import ratelimit
 from app.config import Settings
-from app.database import Base, get_db
-from app.main import app
 
 
-@pytest_asyncio.fixture
-async def client():
-    engine = create_async_engine("sqlite+aiosqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False})
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    maker = async_sessionmaker(engine, expire_on_commit=False, autoflush=False)
-
-    async def _get_db():
-        async with maker() as s:
-            try:
-                yield s
-                await s.commit()
-            except Exception:
-                await s.rollback()
-                raise
-
-    app.dependency_overrides[get_db] = _get_db
-    ratelimit.limiter.reset()
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
-        yield c
-    app.dependency_overrides.clear()
-    ratelimit.limiter.reset()
-    await engine.dispose()
-
-
-def H(tok):
-    return {"Authorization": f"Bearer {tok}"}
-
-
-async def register(c, email="ortu@x.com", pw="rahasia123"):
-    r = await c.post("/auth/register-family", json={
-        "family_name": "Keluarga", "admin_name": "Ayah", "admin_email": email, "admin_password": pw})
-    assert r.status_code == 201, r.text
-    return r.json()
-
-
-async def add_child(c, tok, name="Adik"):
-    r = await c.post("/members", json={"name": name}, headers=H(tok))
-    assert r.status_code == 201, r.text
-    return r.json()["id"]
+from tests.helpers import H, add_child, register  # noqa: E402
 
 
 async def test_family_code_is_six_digits(client):

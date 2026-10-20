@@ -259,3 +259,39 @@ class PushSubscription(Base):
     endpoint: Mapped[str] = mapped_column(Text)
     p256dh: Mapped[str] = mapped_column(String(255))
     auth: Mapped[str] = mapped_column(String(255))
+
+
+class FamilyAiConsent(Base):
+    """Persetujuan orang tua agar rekaman suara anak dikirim ke layanan transkripsi pihak ketiga."""
+
+    __tablename__ = "family_ai_consents"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    family_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("families.id"), unique=True)
+    granted_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("parent_users.id"))
+    granted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class MemberPushSubscription(Base):
+    """Langganan Web Push perangkat anak (orang tua tetap memakai PushSubscription)."""
+
+    __tablename__ = "member_push_subscriptions"
+    __table_args__ = (UniqueConstraint("endpoint_hash"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    member_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("members.id"), index=True)
+    endpoint_hash: Mapped[str] = mapped_column(String(64))
+    endpoint: Mapped[str] = mapped_column(Text)
+    p256dh: Mapped[str] = mapped_column(String(255))
+    auth: Mapped[str] = mapped_column(String(255))
+
+
+class ReminderLog(Base):
+    """Satu pengingat per anak per hari (idempoten)."""
+
+    __tablename__ = "reminder_logs"
+    __table_args__ = (UniqueConstraint("member_id", "day"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    member_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("members.id"), index=True)
+    day: Mapped[date] = mapped_column(Date)
