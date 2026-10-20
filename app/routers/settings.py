@@ -34,3 +34,30 @@ async def update_family_settings(
     for k, v in data.items():
         setattr(row, k, v)
     return row
+
+
+@router.get("/ai-consent")
+async def get_ai_consent(ctx: AuthContext = Depends(require_parent), db: AsyncSession = Depends(get_db)):
+    from app.services import stt
+
+    row = (
+        await db.execute(select(models.FamilyAiConsent).where(models.FamilyAiConsent.family_id == ctx.family_id))
+    ).scalar_one_or_none()
+    return {"granted": row is not None, "available": stt.is_configured()}
+
+
+@router.put("/ai-consent")
+async def set_ai_consent(
+    payload: schemas.AiConsentIn,
+    ctx: AuthContext = Depends(require_parent),
+    db: AsyncSession = Depends(get_db),
+):
+    """Orang tua mengizinkan/mencabut pengiriman suara anak ke layanan transkripsi pihak ketiga."""
+    row = (
+        await db.execute(select(models.FamilyAiConsent).where(models.FamilyAiConsent.family_id == ctx.family_id))
+    ).scalar_one_or_none()
+    if payload.granted and not row:
+        db.add(models.FamilyAiConsent(family_id=ctx.family_id, granted_by=ctx.subject_id))
+    elif not payload.granted and row:
+        await db.delete(row)
+    return {"granted": payload.granted}

@@ -73,3 +73,36 @@ async def member_with_ziyadah(db_session: AsyncSession):
     member = await db_session.get(Member, member_id)
     assert member is not None
     return member
+
+
+from httpx import ASGITransport, AsyncClient  # noqa: E402
+from sqlalchemy.pool import StaticPool  # noqa: E402
+
+from app import ratelimit  # noqa: E402
+from app.main import app  # noqa: E402
+from app.database import get_db  # noqa: E402
+
+
+@pytest_asyncio.fixture
+async def client():
+    engine = create_async_engine("sqlite+aiosqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False})
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    maker = async_sessionmaker(engine, expire_on_commit=False, autoflush=False)
+
+    async def _get_db():
+        async with maker() as s:
+            try:
+                yield s
+                await s.commit()
+            except Exception:
+                await s.rollback()
+                raise
+
+    app.dependency_overrides[get_db] = _get_db
+    ratelimit.limiter.reset()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        yield c
+    app.dependency_overrides.clear()
+    ratelimit.limiter.reset()
+    await engine.dispose()

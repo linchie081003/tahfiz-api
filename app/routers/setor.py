@@ -11,7 +11,8 @@ from app.config import settings
 from app.database import get_db
 from app.deps import AuthContext, get_current_context, require_member_id, require_parent
 from app.services import setor_flow, storage
-from app.services.ai_analysis import analyze_recording, mock_transcript_from_reference
+from app.services import stt
+from app.services.ai_analysis import analyze_recording, unavailable
 from app.services.quran_display import ayah_range_texts
 
 router = APIRouter(prefix="/setor", tags=["setor"])
@@ -73,13 +74,19 @@ async def create_submission(
     sub.recording_key = key
     if context == models.SubmissionContext.tahsin:
         member.tahsin_status = models.TahsinStatus.pending_eval
-    await _enqueue_ai(str(sub.id))
-    await _process_ai_inline(db, sub)
+    await _process_ai_inline(db, sub, data, file.content_type or "audio/webm")
     return schemas.SubmissionCreateOut(id=sub.id, status=sub.status, ai_status=sub.ai_status)
 
 
-async def _process_ai_inline(db: AsyncSession, sub: models.Submission):
-    """Process immediately if Redis unavailable; worker uses same logic."""
+async def _family_consented(db: AsyncSession, family_id: uuid.UUID) -> bool:
+    row = (
+        await db.execute(select(models.FamilyAiConsent).where(models.FamilyAiConsent.family_id == family_id))
+    ).scalar_one_or_none()
+    return row is not None
+
+
+async def _process_ai_inline(db: AsyncSession, sub: models.Submission, audio: bytes, content_type: str):
+    """Pra-cek: hanya bila STT aktif DAN keluarga setuju. Selain itu dinyatakan tidak tersedia."""
     markup = None
     if sub.surah_id and sub.ayah_start:
         ayah = (
@@ -88,8 +95,18 @@ async def _process_ai_inline(db: AsyncSession, sub: models.Submission):
             )
         ).scalar_one_or_none()
         markup = ayah.tajwid_markup if ayah else None
-    transcript = mock_transcript_from_reference(sub.reference_text)
-    insights = analyze_recording(reference_text=sub.reference_text, tajwid_markup=markup, transcript=transcript)
+    transcript = None
+    reason = "disabled"
+    if stt.is_configured() and await _family_consented(db, sub.family_id):
+        transcript = await stt.transcribe(audio, content_type)
+        reason = "no_transcript"
+    elif stt.is_configured():
+        reason = "no_consent"
+    insights = (
+        analyze_recording(reference_text=sub.reference_text, tajwid_markup=markup, transcript=transcript)
+        if transcript
+        else unavailable(reason)
+    )
     sub.ai_insights = insights
     sub.ai_status = "completed"
     sub.status = models.SubmissionStatus.pending_eval

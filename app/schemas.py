@@ -293,6 +293,10 @@ class GamificationOut(BaseModel):
     badges: list[BadgeOut]
 
 
+class AiConsentIn(BaseModel):
+    granted: bool
+
+
 class PushSubscribeIn(BaseModel):
     endpoint: str
     keys: dict[str, str]
