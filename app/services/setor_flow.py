@@ -1,0 +1,119 @@
+"""Setoran: validasi urutan ziyadah + evaluasi idempoten."""
+
+from __future__ import annotations
+
+import uuid
+from datetime import datetime, timezone
+
+from fastapi import HTTPException
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app import models, schemas
+from app.models import SubmissionContext, SubmissionStatus, SurahProgressStatus, TahsinStatus
+from app.services import gamification, murojaah, progress
+
+
+async def assert_ziyadah_setor_allowed(
+    db: AsyncSession,
+    member: models.Member,
+    surah_id: int | None,
+    ayah_start: int | None,
+    ayah_end: int | None,
+) -> models.MemberSurahProgress:
+    if surah_id is None or ayah_start is None:
+        raise HTTPException(409, "Setoran ziyadah wajib surah_id dan ayah_start")
+    if member.tahsin_status != TahsinStatus.passed:
+        raise HTTPException(409, "Selesaikan Tahsin dulu")
+
+    active = await progress.get_active_surah(db, member.id)
+    if not active or active.surah_id != surah_id:
+        raise HTTPException(409, "Hanya surat aktif di peta yang boleh disetor")
+
+    prog = (
+        await db.execute(
+            select(models.MemberSurahProgress).where(
+                models.MemberSurahProgress.member_id == member.id,
+                models.MemberSurahProgress.surah_id == surah_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if not prog or prog.status not in (SurahProgressStatus.in_progress, SurahProgressStatus.needs_retry):
+        raise HTTPException(409, "Surat tidak sedang dipelajari")
+
+    end = ayah_end if ayah_end is not None else ayah_start
+    if end < ayah_start:
+        raise HTTPException(409, "Rentang ayat tidak valid")
+
+    surah = await db.get(models.Surah, surah_id)
+    if not surah or ayah_start < 1 or end > surah.ayah_count:
+        raise HTTPException(409, "Ayat di luar batas surat")
+
+    allowed_starts = {prog.current_ayah, prog.current_ayah + 1}
+    if ayah_start not in allowed_starts:
+        raise HTTPException(
+            409,
+            "Ayat setoran harus sama dengan ayat aktif atau ayat berikutnya",
+        )
+    return prog
+
+
+async def load_submission_for_evaluate(
+    db: AsyncSession, submission_id: uuid.UUID, family_id: uuid.UUID
+) -> models.Submission | None:
+    result = await db.execute(
+        select(models.Submission).where(models.Submission.id == submission_id).with_for_update()
+    )
+    sub = result.scalar_one_or_none()
+    if not sub or sub.family_id != family_id:
+        return None
+    return sub
+
+
+async def apply_submission_evaluation(
+    db: AsyncSession,
+    sub: models.Submission,
+    member: models.Member,
+    payload: schemas.EvaluateSubmissionIn,
+) -> None:
+    """Side effects for first-time evaluation (caller must ensure status is pending_eval)."""
+    sub.status = payload.status
+    sub.rubric_scores = payload.rubric_scores
+    sub.evaluator_notes = payload.evaluator_notes
+    sub.evaluated_at = datetime.now(timezone.utc)
+
+    if sub.context == SubmissionContext.tahsin:
+        if payload.status == SubmissionStatus.passed:
+            member.tahsin_status = TahsinStatus.passed
+            await gamification.add_xp(db, member.id, "tahsin_lulus")
+        else:
+            member.tahsin_status = TahsinStatus.failed
+        db.add(
+            models.TahsinAttempt(
+                member_id=member.id,
+                submission_id=sub.id,
+                result=payload.status.value,
+            )
+        )
+
+    if sub.context == SubmissionContext.ziyadah and sub.surah_id:
+        prog = (
+            await db.execute(
+                select(models.MemberSurahProgress).where(
+                    models.MemberSurahProgress.member_id == member.id,
+                    models.MemberSurahProgress.surah_id == sub.surah_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if prog:
+            ayah_end = sub.ayah_end if sub.ayah_end is not None else sub.ayah_start
+            if payload.status == SubmissionStatus.passed:
+                prog.status = SurahProgressStatus.passed
+                surah = await db.get(models.Surah, sub.surah_id)
+                if surah and ayah_end is not None:
+                    prog.current_ayah = min(ayah_end + 1, surah.ayah_count)
+                await progress.unlock_next_surah(db, member.id, sub.surah_id)
+                await murojaah.schedule_for_passed_surah(db, member.id, sub.surah_id)
+                await gamification.add_xp(db, member.id, "setoran_lulus")
+            else:
+                prog.status = SurahProgressStatus.needs_retry

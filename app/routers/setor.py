@@ -10,7 +10,7 @@ from app import models, schemas
 from app.config import settings
 from app.database import get_db
 from app.deps import AuthContext, get_current_context, require_member_id, require_parent
-from app.services import gamification, murojaah, progress, storage
+from app.services import setor_flow, storage
 from app.services.ai_analysis import analyze_recording, mock_transcript_from_reference
 from app.services.quran_display import ayah_range_texts
 
@@ -52,6 +52,8 @@ async def create_submission(
     member = await db.get(models.Member, member_id)
     if not member or member.family_id != ctx.family_id:
         raise HTTPException(403, "Akses ditolak")
+    if context == models.SubmissionContext.ziyadah:
+        await setor_flow.assert_ziyadah_setor_allowed(db, member, surah_id, ayah_start, ayah_end)
     data = await file.read()
     sub = models.Submission(
         member_id=member_id,
@@ -130,50 +132,7 @@ async def evaluator_queue(ctx: AuthContext = Depends(require_parent), db: AsyncS
     return out
 
 
-@router.post("/{submission_id}/evaluate", response_model=schemas.SubmissionOut)
-async def evaluate_submission(
-    submission_id: uuid.UUID,
-    payload: schemas.EvaluateSubmissionIn,
-    ctx: AuthContext = Depends(require_parent),
-    db: AsyncSession = Depends(get_db),
-):
-    sub = await db.get(models.Submission, submission_id)
-    if not sub or sub.family_id != ctx.family_id:
-        raise HTTPException(404, "Setoran tidak ditemukan")
-    member = await db.get(models.Member, sub.member_id)
-    sub.status = payload.status
-    sub.rubric_scores = payload.rubric_scores
-    sub.evaluator_notes = payload.evaluator_notes
-    from datetime import datetime, timezone
-
-    sub.evaluated_at = datetime.now(timezone.utc)
-
-    if sub.context == models.SubmissionContext.tahsin:
-        if payload.status == models.SubmissionStatus.passed:
-            member.tahsin_status = models.TahsinStatus.passed
-            await gamification.add_xp(db, member.id, "tahsin_lulus")
-        else:
-            member.tahsin_status = models.TahsinStatus.failed
-        db.add(models.TahsinAttempt(member_id=member.id, submission_id=sub.id, result=payload.status.value))
-
-    if sub.context == models.SubmissionContext.ziyadah and sub.surah_id:
-        prog = (
-            await db.execute(
-                select(models.MemberSurahProgress).where(
-                    models.MemberSurahProgress.member_id == member.id,
-                    models.MemberSurahProgress.surah_id == sub.surah_id,
-                )
-            )
-        ).scalar_one_or_none()
-        if prog:
-            if payload.status == models.SubmissionStatus.passed:
-                prog.status = models.SurahProgressStatus.passed
-                await progress.unlock_next_surah(db, member.id, sub.surah_id)
-                await murojaah.schedule_for_passed_surah(db, member.id, sub.surah_id)
-                await gamification.add_xp(db, member.id, "setoran_lulus")
-            else:
-                prog.status = models.SurahProgressStatus.needs_retry
-
+def _submission_out(sub: models.Submission, member: models.Member | None) -> schemas.SubmissionOut:
     return schemas.SubmissionOut(
         id=sub.id,
         context=sub.context,
@@ -185,5 +144,26 @@ async def evaluate_submission(
         rubric_scores=sub.rubric_scores,
         recording_url=storage.presigned_recording_url(sub.recording_key, sub.family_id, sub.id),
         created_at=sub.created_at,
-        member_name=member.name,
+        member_name=member.name if member else None,
     )
+
+
+@router.post("/{submission_id}/evaluate", response_model=schemas.SubmissionOut)
+async def evaluate_submission(
+    submission_id: uuid.UUID,
+    payload: schemas.EvaluateSubmissionIn,
+    ctx: AuthContext = Depends(require_parent),
+    db: AsyncSession = Depends(get_db),
+):
+    sub = await setor_flow.load_submission_for_evaluate(db, submission_id, ctx.family_id)
+    if not sub:
+        raise HTTPException(404, "Setoran tidak ditemukan")
+    member = await db.get(models.Member, sub.member_id)
+    if not member:
+        raise HTTPException(404, "Profil tidak ditemukan")
+
+    if sub.status != models.SubmissionStatus.pending_eval:
+        return _submission_out(sub, member)
+
+    await setor_flow.apply_submission_evaluation(db, sub, member, payload)
+    return _submission_out(sub, member)
