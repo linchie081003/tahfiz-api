@@ -105,6 +105,26 @@ class ParentDashboardOut(BaseModel):
     children: list[ParentChildSummaryOut]
 
 
+class WeeklyDayOut(BaseModel):
+    date: date
+    label: str
+    ayat: int
+
+
+class WeeklyReportOut(BaseModel):
+    member_id: uuid.UUID
+    member_name: str
+    week_start: date
+    week_end: date
+    ayat_total: int
+    active_days: int
+    surahs_finished: int
+    daily: list[WeeklyDayOut]
+    overdue_murojaah_count: int
+    overdue_murojaah_surahs: list[str]
+    note: str
+
+
 class PinVerifyIn(BaseModel):
     pin: str
 

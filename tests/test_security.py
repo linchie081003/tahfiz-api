@@ -155,3 +155,16 @@ def test_prod_accepts_strong_secret():
 def test_prod_rejects_default_s3_keys():
     with pytest.raises(ValueError):
         Settings(environment="production", jwt_secret="a" * 48, use_local_storage=False, _env_file=None)
+
+
+async def test_weekly_report_scoped_to_family_and_parent_only(client):
+    a = await register(client, "a@x.com")
+    b = await register(client, "b@x.com")
+    cid = await add_child(client, a["access_token"])
+    ok = await client.get(f"/parent/weekly-report?member_id={cid}", headers=H(a["access_token"]))
+    assert ok.status_code == 200 and ok.json()["ayat_total"] == 0 and len(ok.json()["daily"]) == 7
+    other = await client.get(f"/parent/weekly-report?member_id={cid}", headers=H(b["access_token"]))
+    assert other.status_code == 404
+    ctok = (await client.post("/auth/child-login", json={
+        "access_code": a["family_access_code"], "child_id": cid, "pin": ""})).json()["access_token"]
+    assert (await client.get(f"/parent/weekly-report?member_id={cid}", headers=H(ctok))).status_code == 403
