@@ -1,19 +1,30 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import models, schemas
 from app.database import get_db
-from app.deps import require_member_id
+from app.deps import AuthContext, get_current_context, optional_member_id, require_member_id
 from app.services import gamification, murojaah
 
 router = APIRouter(prefix="/murojaah", tags=["murojaah"])
 
 
 @router.get("/due", response_model=list[schemas.MurojaahItemOut])
-async def due(member_id=Depends(require_member_id), db: AsyncSession = Depends(get_db)):
-    items = await murojaah.due_items(db, member_id, 10)
+async def due(
+    member_id=Depends(optional_member_id),
+    ctx: AuthContext = Depends(get_current_context),
+    db: AsyncSession = Depends(get_db),
+):
+    if member_id is None:
+        return []
+    settings = (
+        await db.execute(select(models.FamilySettings).where(models.FamilySettings.family_id == ctx.family_id))
+    ).scalar_one_or_none()
+    cap = settings.daily_murojaah_cap if settings else 5
+    items = await murojaah.due_items(db, member_id, cap)
     out = []
     for it in items:
         surah = await db.get(models.Surah, it.surah_id)

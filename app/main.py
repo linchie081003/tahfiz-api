@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.database import Base, engine
-from app.routers import auth, gamify, home, members, murojaah, notifications, peta, quran, setor, settings as settings_router, tahsin
+from app.routers import auth, gamify, home, members, murojaah, notifications, parent, peta, quran, setor, settings as settings_router, tahsin
 
 
 @asynccontextmanager
@@ -33,6 +33,7 @@ app.add_middleware(
 
 app.include_router(auth.router)
 app.include_router(members.router)
+app.include_router(parent.router)
 app.include_router(settings_router.router)
 app.include_router(quran.router)
 app.include_router(setor.router)

@@ -5,8 +5,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import models, schemas
 from app.database import get_db
 from app.deps import AuthContext, get_current_context
+from app.models import AgeMode
+from app.services.juz30 import list_juz30_surahs
 from app.services.quran_com_import import ensure_chapter_catalog, ensure_surah_ayahs
-from app.services.reciters import everyayah_url, list_reciters
+from app.services.reciters import (
+    default_reciter_for_age,
+    everyayah_url,
+    list_reciters,
+    reciter_for_learning,
+)
 from app.services.surah_names_id import indonesian_surah_name
 
 router = APIRouter(prefix="/quran", tags=["quran"])
@@ -23,12 +30,22 @@ def _surah_out(row: models.Surah) -> schemas.SurahOut:
     )
 
 
+async def _member_age_mode(db: AsyncSession, ctx: AuthContext) -> AgeMode | None:
+    if not ctx.member_id:
+        return None
+    member = await db.get(models.Member, ctx.member_id)
+    return member.age_mode if member else None
+
+
 @router.get("/surahs", response_model=list[schemas.SurahOut])
 async def list_surahs(
     juz: int | None = Query(None, ge=1, le=30),
     ctx: AuthContext = Depends(get_current_context),
     db: AsyncSession = Depends(get_db),
 ):
+    if juz == 30:
+        rows = await list_juz30_surahs(db)
+        return [_surah_out(r) for r in rows]
     await ensure_chapter_catalog(db)
     q = select(models.Surah).order_by(models.Surah.id)
     if juz is not None:
@@ -38,28 +55,53 @@ async def list_surahs(
 
 
 @router.get("/reciters", response_model=list[schemas.ReciterOut])
-async def reciters(gender: str | None = Query(None, pattern="^(male|female)$")):
+async def reciters(
+    gender: str | None = Query(None, pattern="^(male|female)$"),
+    age_mode: AgeMode | None = Query(None),
+    ctx: AuthContext = Depends(get_current_context),
+    db: AsyncSession = Depends(get_db),
+):
+    mode = age_mode or await _member_age_mode(db, ctx)
+    default_id = default_reciter_for_age(mode)
     return [
-        schemas.ReciterOut(id=r.id, label=r.label, gender=r.gender, description=r.description)
-        for r in list_reciters(gender)
+        schemas.ReciterOut(
+            id=r.id,
+            label=r.label,
+            gender=r.gender,
+            description=r.description,
+            style=r.style,
+            default_for_age=r.id == default_id,
+        )
+        for r in list_reciters(gender, age_mode=mode, for_settings=True)
     ]
 
 
 @router.get("/surahs/juz/{juz_number}", response_model=list[schemas.SurahOut])
 async def surahs_by_juz(juz_number: int, db: AsyncSession = Depends(get_db)):
+    if juz_number == 30:
+        rows = await list_juz30_surahs(db)
+        return [_surah_out(r) for r in rows]
     rows = (
-        await db.execute(select(models.Surah).where(models.Surah.juz_number == juz_number).order_by(models.Surah.curriculum_order))
+        await db.execute(
+            select(models.Surah).where(models.Surah.juz_number == juz_number).order_by(models.Surah.curriculum_order)
+        )
     ).scalars().all()
     return [_surah_out(r) for r in rows]
 
 
-async def _resolve_reciter(db: AsyncSession, family_id, reciter_id: str | None) -> str:
-    if reciter_id:
-        return reciter_id
-    settings = (
-        await db.execute(select(models.FamilySettings).where(models.FamilySettings.family_id == family_id))
-    ).scalar_one_or_none()
-    return settings.reciter_id if settings else "alafasy"
+async def _resolve_reciter(
+    db: AsyncSession,
+    family_id,
+    reciter_id: str | None,
+    age_mode: AgeMode | None,
+) -> str:
+    rid = reciter_id
+    if not rid:
+        settings = (
+            await db.execute(select(models.FamilySettings).where(models.FamilySettings.family_id == family_id))
+        ).scalar_one_or_none()
+        rid = settings.reciter_id if settings else None
+    return reciter_for_learning(rid, age_mode)
 
 
 @router.get("/surahs/{surah_id}/ayahs", response_model=list[schemas.AyahOut])
@@ -79,7 +121,8 @@ async def ayahs(
     ).scalars().all()
     if not rows:
         raise HTTPException(404, "Ayat surat belum tersedia — coba lagi atau jalankan scripts/import_full_quran.py")
-    rid = await _resolve_reciter(db, ctx.family_id, reciter_id)
+    age_mode = await _member_age_mode(db, ctx)
+    rid = await _resolve_reciter(db, ctx.family_id, reciter_id, age_mode)
     out: list[schemas.AyahOut] = []
     for a in rows:
         out.append(

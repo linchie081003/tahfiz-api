@@ -29,6 +29,7 @@ class SessionOut(BaseModel):
     role: str
     member_id: uuid.UUID | None
     member_name: str | None
+    age_mode: AgeMode | None = None
     family_name: str
     family_access_code: str
     needs_child_profile: bool
@@ -58,6 +59,16 @@ class MemberCreateIn(BaseModel):
     age_mode: AgeMode = AgeMode.sd
 
 
+class MemberUpdateIn(BaseModel):
+    age_mode: AgeMode | None = None
+
+
+class PasswordResetIn(BaseModel):
+    email: EmailStr
+    access_code: str = Field(min_length=4, max_length=12)
+    new_password: str = Field(min_length=8)
+
+
 class MemberOut(BaseModel):
     id: uuid.UUID
     name: str
@@ -71,6 +82,27 @@ class MemberOut(BaseModel):
 class MemberDeleteOut(BaseModel):
     ok: bool = True
     access_token: str | None = None
+
+
+class ParentChildSummaryOut(BaseModel):
+    id: uuid.UUID
+    name: str
+    color: str
+    age_mode: AgeMode
+    tahsin_status: TahsinStatus
+    xp: int
+    streak_days: int
+    level: int
+    passed_surahs: int
+    pending_setor: int
+
+
+class ParentDashboardOut(BaseModel):
+    family_name: str
+    family_access_code: str
+    queue_total: int
+    active_member_id: uuid.UUID | None = None
+    children: list[ParentChildSummaryOut]
 
 
 class PinVerifyIn(BaseModel):
@@ -94,8 +126,8 @@ class FamilySettingsOut(BaseModel):
 
 class FamilySettingsUpdateIn(BaseModel):
     evaluator_type: EvaluatorType | None = None
-    daily_ziyadah_ayahs: int | None = None
-    daily_murojaah_cap: int | None = None
+    daily_ziyadah_ayahs: int | None = Field(default=None, ge=1, le=30)
+    daily_murojaah_cap: int | None = Field(default=None, ge=1, le=30)
     reminder_hour: int | None = None
     celebrations_enabled: bool | None = None
     leaderboard_enabled: bool | None = None
@@ -110,6 +142,17 @@ class ReciterOut(BaseModel):
     label: str
     gender: str
     description: str
+    style: str
+    default_for_age: bool = False
+
+
+class BeautyRewardOut(BaseModel):
+    submission_id: uuid.UUID
+    surah_id: int
+    ayah_start: int
+    ayah_end: int
+    audio_urls: list[str]
+    label: str
 
 
 class SurahOut(BaseModel):
@@ -167,6 +210,7 @@ class SubmissionOut(BaseModel):
 
 class HomeOut(BaseModel):
     greeting_name: str
+    age_mode: AgeMode | None = None
     streak_days: int
     xp: int
     level: int
@@ -179,6 +223,8 @@ class HomeOut(BaseModel):
     tahsin_status: TahsinStatus
     menu_locks: dict[str, str]
     level_progress: float
+    beauty_reward: BeautyRewardOut | None = None
+    parent_preview: bool = False
 
 
 class PetaNodeOut(BaseModel):

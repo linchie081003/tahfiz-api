@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import models, schemas, security
 from app.config import settings
 from app.database import get_db
-from app.deps import AuthContext, require_parent
+from app.deps import AuthContext, get_current_context, require_parent
 from app.services import gamification, progress
 from app.services.member_lifecycle import delete_member_and_data
 
@@ -35,6 +35,27 @@ async def list_members(ctx: AuthContext = Depends(require_parent), db: AsyncSess
     return rows
 
 
+@router.patch("/{member_id}", response_model=schemas.MemberOut)
+async def update_member(
+    member_id: uuid.UUID,
+    payload: schemas.MemberUpdateIn,
+    ctx: AuthContext = Depends(get_current_context),
+    db: AsyncSession = Depends(get_db),
+):
+    if ctx.role == "child" and ctx.member_id != member_id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Hanya profil sendiri")
+    if ctx.role not in ("parent", "child"):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Tidak diizinkan")
+    member = await db.get(models.Member, member_id)
+    if not member or member.family_id != ctx.family_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Anak tidak ditemukan")
+    if payload.age_mode is not None:
+        member.age_mode = payload.age_mode
+    await db.flush()
+    await db.refresh(member)
+    return member
+
+
 @router.delete("/{member_id}", response_model=schemas.MemberDeleteOut)
 async def remove_member(
     member_id: uuid.UUID,
@@ -58,6 +79,22 @@ async def remove_member(
                 expires_minutes=settings.parent_token_expire_minutes,
             )
     return schemas.MemberDeleteOut(access_token=new_token)
+
+
+@router.post("/exit-impersonate", response_model=schemas.TokenOut)
+async def exit_impersonate(ctx: AuthContext = Depends(require_parent), db: AsyncSession = Depends(get_db)):
+    parent = await db.get(models.ParentUser, ctx.subject_id)
+    if not parent:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Akun orang tua tidak ditemukan")
+    family = await db.get(models.Family, ctx.family_id)
+    token = security.create_token(
+        subject=parent.id,
+        family_id=ctx.family_id,
+        role="parent",
+        member_id=None,
+        expires_minutes=settings.parent_token_expire_minutes,
+    )
+    return schemas.TokenOut(access_token=token, role="parent", family_access_code=family.access_code if family else "")
 
 
 @router.post("/{member_id}/impersonate", response_model=schemas.TokenOut)

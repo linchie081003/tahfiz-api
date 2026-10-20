@@ -103,7 +103,7 @@ class FamilySettings(Base):
     reminder_hour: Mapped[int] = mapped_column(Integer, default=17)
     celebrations_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     leaderboard_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
-    reciter_id: Mapped[str] = mapped_column(String(64), default="alafasy")
+    reciter_id: Mapped[str] = mapped_column(String(64), default="husary_muallim")
     playback_speed: Mapped[float] = mapped_column(Float, default=1.0)
     arabic_font_size: Mapped[str] = mapped_column(String(16), default="large")
     show_tajweed_colors: Mapped[bool] = mapped_column(Boolean, default=True)

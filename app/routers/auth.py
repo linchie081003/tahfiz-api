@@ -1,5 +1,4 @@
 import random
-import string
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -16,7 +15,8 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 def _access_code() -> str:
-    return "".join(random.choices(string.ascii_uppercase + string.digits, k=8))
+    """Kode mudah diingat anak: 6 angka (tanpa leading nol semua)."""
+    return str(random.randint(100_000, 999_999))
 
 
 @router.post("/register-family", response_model=schemas.TokenOut, status_code=status.HTTP_201_CREATED)
@@ -57,18 +57,42 @@ async def register_family(payload: schemas.RegisterFamilyIn, db: AsyncSession = 
 async def session(ctx: AuthContext = Depends(get_current_context), db: AsyncSession = Depends(get_db)):
     family = await db.get(models.Family, ctx.family_id)
     member_name = None
+    age_mode = None
     if ctx.member_id:
         member = await db.get(models.Member, ctx.member_id)
-        member_name = member.name if member else None
-    needs = ctx.role == "parent" and ctx.member_id is None
+        if member:
+            member_name = member.name
+            age_mode = member.age_mode
     return schemas.SessionOut(
         role=ctx.role,
         member_id=ctx.member_id,
         member_name=member_name,
+        age_mode=age_mode,
         family_name=family.name if family else "",
         family_access_code=family.access_code if family else "",
-        needs_child_profile=needs,
+        needs_child_profile=False,
     )
+
+
+@router.post("/reset-password")
+async def reset_password(payload: schemas.PasswordResetIn, db: AsyncSession = Depends(get_db)):
+    """Reset kata sandi orang tua dengan email + kode keluarga (6 angka) — tanpa email SMTP."""
+    code = _normalize_access_code(payload.access_code)
+    if len(code) < 4:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Kode keluarga tidak valid")
+    family = (
+        await db.execute(select(models.Family).where(models.Family.access_code == code))
+    ).scalar_one_or_none()
+    if not family:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Kode keluarga tidak ditemukan")
+    user = (
+        await db.execute(select(models.ParentUser).where(models.ParentUser.email == payload.email))
+    ).scalar_one_or_none()
+    if not user or user.family_id != family.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Email tidak cocok dengan kode keluarga ini")
+    user.hashed_password = security.hash_secret(payload.new_password)
+    await db.flush()
+    return {"ok": True}
 
 
 @router.post("/login", response_model=schemas.TokenOut)
@@ -87,10 +111,15 @@ async def login(payload: schemas.LoginIn, db: AsyncSession = Depends(get_db)):
     return schemas.TokenOut(access_token=token, role="parent", family_access_code=family.access_code)
 
 
+def _normalize_access_code(raw: str) -> str:
+    return "".join(ch for ch in raw.upper() if ch.isalnum())
+
+
 @router.get("/family-children", response_model=schemas.PublicFamilyChildrenOut)
 async def family_children(access_code: str, db: AsyncSession = Depends(get_db)):
+    code = _normalize_access_code(access_code)
     family = (
-        await db.execute(select(models.Family).where(models.Family.access_code == access_code.upper()))
+        await db.execute(select(models.Family).where(models.Family.access_code == code))
     ).scalar_one_or_none()
     if not family:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Kode keluarga tidak ditemukan")
@@ -105,8 +134,9 @@ async def family_children(access_code: str, db: AsyncSession = Depends(get_db)):
 
 @router.post("/child-login", response_model=schemas.TokenOut)
 async def child_login(payload: schemas.ChildLoginIn, db: AsyncSession = Depends(get_db)):
+    code = _normalize_access_code(payload.access_code)
     family = (
-        await db.execute(select(models.Family).where(models.Family.access_code == payload.access_code.upper()))
+        await db.execute(select(models.Family).where(models.Family.access_code == code))
     ).scalar_one_or_none()
     if not family:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Kode keluarga tidak ditemukan")

@@ -118,7 +118,10 @@ async def import_surah_ayahs(db: AsyncSession, surah_id: int, client: httpx.Asyn
 
 async def ensure_chapter_catalog(db: AsyncSession) -> None:
     count = (await db.execute(select(func.count()).select_from(Surah))).scalar_one()
-    if count >= 114:
+    juz30 = (
+        await db.execute(select(func.count()).select_from(Surah).where(Surah.juz_number == 30))
+    ).scalar_one()
+    if count >= 114 and juz30 > 0:
         return
     async with httpx.AsyncClient() as client:
         for ch in await fetch_chapters(client):

@@ -48,3 +48,11 @@ async def require_member_id(ctx: AuthContext = Depends(get_current_context)) -> 
     if ctx.role == "parent" and ctx.member_id:
         return ctx.member_id
     raise HTTPException(status.HTTP_400_BAD_REQUEST, "Pilih profil anak terlebih dahulu")
+
+
+async def optional_member_id(ctx: AuthContext = Depends(get_current_context)) -> uuid.UUID | None:
+    if ctx.role == "child":
+        if not ctx.member_id:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Profil anak tidak valid")
+        return ctx.member_id
+    return ctx.member_id
