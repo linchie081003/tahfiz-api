@@ -168,3 +168,10 @@ async def test_weekly_report_scoped_to_family_and_parent_only(client):
     ctok = (await client.post("/auth/child-login", json={
         "access_code": a["family_access_code"], "child_id": cid, "pin": ""})).json()["access_token"]
     assert (await client.get(f"/parent/weekly-report?member_id={cid}", headers=H(ctok))).status_code == 403
+
+
+async def test_second_family_can_register(client):
+    await register(client, "satu@x.com")
+    r = await client.post("/auth/register-family", json={
+        "family_name": "Keluarga Dua", "admin_name": "Ibu", "admin_email": "dua@x.com", "admin_password": "rahasia123"})
+    assert r.status_code == 201, r.text
