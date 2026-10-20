@@ -42,7 +42,11 @@ async def register_family(request: Request, payload: schemas.RegisterFamilyIn, d
     )
     db.add(parent)
     db.add(models.FamilySettings(family_id=family.id))
-    db.add(models.MissionType(slug="quran_memorization", name="Hafalan Qur'an"))
+    # Jenis misi bersifat global (slug unik): buat sekali saja, jangan per keluarga.
+    if not (
+        await db.execute(select(models.MissionType).where(models.MissionType.slug == "quran_memorization"))
+    ).scalar_one_or_none():
+        db.add(models.MissionType(slug="quran_memorization", name="Hafalan Qur'an"))
     await db.flush()
     token = security.create_token(
         subject=parent.id,

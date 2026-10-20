@@ -1,13 +1,14 @@
 import uuid
+from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import models, schemas
 from app.database import get_db
 from app.deps import AuthContext, require_parent
-from app.services import gamification
+from app.services import gamification, weekly_report
 
 router = APIRouter(prefix="/parent", tags=["parent"])
 
@@ -77,3 +78,16 @@ async def parent_dashboard(ctx: AuthContext = Depends(require_parent), db: Async
         active_member_id=ctx.member_id,
         children=children,
     )
+
+
+@router.get("/weekly-report", response_model=schemas.WeeklyReportOut)
+async def weekly_report_for_member(
+    member_id: uuid.UUID,
+    ctx: AuthContext = Depends(require_parent),
+    db: AsyncSession = Depends(get_db),
+):
+    member = await db.get(models.Member, member_id)
+    if not member or member.family_id != ctx.family_id:
+        raise HTTPException(404, "Anak tidak ditemukan")
+    today = datetime.now(timezone.utc).date()
+    return await weekly_report.build_weekly_report(db, ctx.family_id, member, today)
