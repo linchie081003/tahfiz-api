@@ -2,7 +2,7 @@ import uuid
 
 import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,10 +23,10 @@ async def stream_recording(submission_id: uuid.UUID, ctx: AuthContext = Depends(
     sub = await db.get(models.Submission, submission_id)
     if not sub or sub.family_id != ctx.family_id:
         raise HTTPException(404, "Rekaman tidak ditemukan")
-    path = storage.local_recording_path(sub.family_id, sub.id)
-    if not path.is_file():
+    data = storage.read_recording(sub.recording_key, sub.family_id, sub.id)
+    if not data:
         raise HTTPException(404, "File rekaman tidak ada")
-    return FileResponse(path, media_type="audio/webm")
+    return Response(content=data, media_type=storage.sniff_audio_type(data))
 
 
 async def _enqueue_ai(submission_id: str):
