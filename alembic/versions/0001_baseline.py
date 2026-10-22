@@ -15,7 +15,11 @@ down_revision = None
 branch_labels = None
 depends_on = None
 
-NEW_TABLES = {"family_invites", "member_settings", "tahsin_point_progress"}
+NEW_TABLES = {
+    "family_invites", "member_settings", "tahsin_point_progress",
+    "institutions", "teachers", "teacher_documents", "teacher_links", "recording_access_logs",
+    "deletion_requests", "teacher_messages", "transfer_requests",
+}
 
 
 def upgrade() -> None:

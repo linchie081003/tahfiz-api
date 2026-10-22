@@ -66,6 +66,7 @@ async def test_with_consent_precheck_runs_and_can_be_revoked(client, fake_stt):
     tok = reg["access_token"]
     cid = await add_child(client, tok)
     ctok = await _child_token(client, reg, cid)
+    await client.post("/family/consent/recording", json={"granted": True}, headers=H(tok))
     assert (await client.put("/settings/ai-consent", json={"granted": True}, headers=H(tok))).json()["granted"] is True
     assert (await _submit(client, ctok)).status_code == 200
     assert fake_stt == [5000]

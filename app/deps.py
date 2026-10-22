@@ -51,6 +51,10 @@ async def get_current_context(
         member = await db.get(models.Member, subject_id)
         if not member or member.family_id != family_id or member_id != member.id:
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Sesi berakhir, silakan masuk kembali")
+    elif role == "teacher":
+        teacher = await db.get(models.Teacher, subject_id)
+        if not teacher or payload.get("pwv") != password_fingerprint(teacher.hashed_password):
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Sesi berakhir, silakan masuk kembali")
     else:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Token tidak valid")
     return AuthContext(role=role, family_id=family_id, subject_id=subject_id, member_id=member_id)
@@ -60,6 +64,15 @@ async def require_parent(ctx: AuthContext = Depends(get_current_context)) -> Aut
     if ctx.role != "parent":
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Hanya orang tua")
     return ctx
+
+
+async def require_teacher(ctx: AuthContext = Depends(get_current_context), db: AsyncSession = Depends(get_db)) -> models.Teacher:
+    if ctx.role != "teacher":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Hanya guru")
+    teacher = await db.get(models.Teacher, ctx.subject_id)
+    if not teacher:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Sesi berakhir, silakan masuk kembali")
+    return teacher
 
 
 async def require_member_id(ctx: AuthContext = Depends(get_current_context)) -> uuid.UUID:

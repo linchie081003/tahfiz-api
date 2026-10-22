@@ -55,6 +55,10 @@ class Family(Base):
     name: Mapped[str] = mapped_column(String(120))
     access_code: Mapped[str] = mapped_column(String(12), unique=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # Persetujuan perekaman suara anak (terpisah dari syarat layanan). Kosong = belum setuju.
+    recording_consent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    recording_consent_by: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    institution_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)  # kosong = mandiri
 
     parents: Mapped[list["ParentUser"]] = relationship(back_populates="family")
     members: Mapped[list["Member"]] = relationship(back_populates="family")
@@ -177,6 +181,7 @@ class Submission(Base):
     ayah_end: Mapped[int | None] = mapped_column(Integer, nullable=True)
     reference_text: Mapped[str] = mapped_column(Text)
     recording_key: Mapped[str] = mapped_column(String(512))
+    recording_deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     status: Mapped[SubmissionStatus] = mapped_column(Enum(SubmissionStatus, native_enum=False), default=SubmissionStatus.pending_ai)
     ai_status: Mapped[str] = mapped_column(String(32), default="pending")
     ai_insights: Mapped[dict | None] = mapped_column(JSON, nullable=True)
@@ -343,3 +348,113 @@ class TahsinPointProgress(Base):
     decided_by: Mapped[str | None] = mapped_column(String(16), nullable=True)  # parent | teacher
     decider_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
     passed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class Institution(Base):
+    __tablename__ = "institutions"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(160))
+    invite_code: Mapped[str] = mapped_column(String(24), unique=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Teacher(Base):
+    """Guru: mandiri (diverifikasi orang tua yang mengundang) atau guru instansi (diverifikasi lewat kode instansi)."""
+
+    __tablename__ = "teachers"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    hashed_password: Mapped[str] = mapped_column(String(255))
+    name: Mapped[str] = mapped_column(String(120))
+    kind: Mapped[str] = mapped_column(String(16), default="independent")  # independent | institution
+    status: Mapped[str] = mapped_column(String(16), default="pending")  # pending | verified | rejected
+    institution_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("institutions.id"), nullable=True)
+    is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
+    invite_code: Mapped[str] = mapped_column(String(24), unique=True, index=True)
+    grading_target_hours: Mapped[int] = mapped_column(Integer, default=48)  # 24 | 48 | 72
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class TeacherDocument(Base):
+    """Dokumen dasar guru mandiri. Platform tidak memeriksa; orang tua yang melihat."""
+
+    __tablename__ = "teacher_documents"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    teacher_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("teachers.id"), index=True)
+    title: Mapped[str] = mapped_column(String(160))
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class TeacherLink(Base):
+    """Tautan guru-anak. Satu anak paling banyak satu guru aktif; izin dengar rekaman ada di sini."""
+
+    __tablename__ = "teacher_links"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    teacher_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("teachers.id"), index=True)
+    family_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("families.id"), index=True)
+    member_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("members.id"), index=True)
+    status: Mapped[str] = mapped_column(String(16), default="requested")  # requested | active | rejected | revoked
+    reject_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    recording_consent: Mapped[bool] = mapped_column(Boolean, default=False)
+    consent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    requested_by: Mapped[uuid.UUID] = mapped_column(Uuid)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class RecordingAccessLog(Base):
+    __tablename__ = "recording_access_logs"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    submission_id: Mapped[uuid.UUID] = mapped_column(Uuid, index=True)
+    teacher_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("teachers.id"))
+    family_id: Mapped[uuid.UUID] = mapped_column(Uuid, index=True)
+    member_id: Mapped[uuid.UUID] = mapped_column(Uuid)
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class DeletionRequest(Base):
+    """Hapus atas permintaan: hilang dari aplikasi seketika, dihapus permanen paling lambat 7 hari."""
+
+    __tablename__ = "deletion_requests"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    family_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("families.id"), index=True)
+    member_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    requested_by: Mapped[uuid.UUID] = mapped_column(Uuid)
+    requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    purge_due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(16), default="pending")  # pending | purged
+    recording_count: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class TeacherMessage(Base):
+    __tablename__ = "teacher_messages"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    teacher_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("teachers.id"), index=True)
+    family_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("families.id"), index=True)
+    member_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    direction: Mapped[str] = mapped_column(String(16), default="to_parent")  # to_parent | to_teacher
+    kind: Mapped[str] = mapped_column(String(16), default="note")  # note | reminder
+    body: Mapped[str] = mapped_column(Text)
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class TransferRequest(Base):
+    """Pindah keluarga ke instansi: dimulai pemilik, disetujui admin instansi."""
+
+    __tablename__ = "transfer_requests"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    family_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("families.id"), index=True)
+    institution_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("institutions.id"), index=True)
+    requested_by: Mapped[uuid.UUID] = mapped_column(Uuid)
+    status: Mapped[str] = mapped_column(String(16), default="pending")  # pending | approved | rejected
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

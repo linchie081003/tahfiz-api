@@ -55,3 +55,14 @@ def presigned_recording_url(key: str, family_id: uuid.UUID | None = None, submis
         Params={"Bucket": settings.s3_bucket, "Key": key},
         ExpiresIn=3600,
     )
+
+
+def delete_recording(family_id: uuid.UUID, submission_id: uuid.UUID) -> None:
+    """Hapus berkas audio dari penyimpanan (lokal atau S3). Tidak error bila sudah tidak ada."""
+    path = local_recording_path(family_id, submission_id)
+    path.unlink(missing_ok=True)
+    if not settings.use_local_storage:
+        try:
+            _client().delete_object(Bucket=settings.s3_bucket, Key=f"recordings/{family_id}/{submission_id}.webm")
+        except Exception:
+            pass

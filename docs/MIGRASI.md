@@ -22,3 +22,18 @@ Uji lebih dulu di SQLite: `ALEMBIC_DATABASE_URL=sqlite+aiosqlite:///./tes.db ale
 
 ## Kembali
 `alembic downgrade 0001` menghapus tabel baru dan kolom `family_role`.
+
+## Revisi 0003 (guru, privasi suara)
+Menambah kolom pada tabel lama lalu membuat tabel baru. Bila memakai SQL Editor Supabase, jalankan ini
+**sebelum** deploy kode baru (tabel baru dibuat sendiri oleh backend saat startup):
+```sql
+ALTER TABLE families    ADD COLUMN IF NOT EXISTS recording_consent_at TIMESTAMPTZ;
+ALTER TABLE families    ADD COLUMN IF NOT EXISTS recording_consent_by UUID;
+ALTER TABLE families    ADD COLUMN IF NOT EXISTS institution_id UUID;
+ALTER TABLE submissions ADD COLUMN IF NOT EXISTS recording_deleted_at TIMESTAMPTZ;
+```
+Atau jalankan `alembic upgrade head`.
+
+## Pekerja retensi
+Hapus rekaman lebih dari 30 hari dan selesaikan permintaan hapus 7 hari. Jalankan satu proses terjadwal:
+`python -m app.workers.retention_worker` (di Render: Background Worker).

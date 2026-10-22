@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime, timezone
 
 import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
@@ -10,7 +11,7 @@ from app import models, schemas
 from app.config import settings
 from app.database import get_db
 from app.deps import AuthContext, get_current_context, require_member_id, require_parent
-from app.services import setor_flow, storage
+from app.services import setor_flow, storage, teaching
 from app.services import stt
 from app.services.ai_analysis import analyze_recording, unavailable
 from app.services.quran_display import ayah_range_texts
@@ -23,6 +24,8 @@ async def stream_recording(submission_id: uuid.UUID, ctx: AuthContext = Depends(
     sub = await db.get(models.Submission, submission_id)
     if not sub or sub.family_id != ctx.family_id:
         raise HTTPException(404, "Rekaman tidak ditemukan")
+    if ctx.role not in ("parent", "child") or sub.recording_deleted_at is not None:
+        raise HTTPException(404, "Rekaman tidak tersedia")
     path = storage.local_recording_path(sub.family_id, sub.id)
     if not path.is_file():
         raise HTTPException(404, "File rekaman tidak ada")
@@ -70,8 +73,15 @@ async def create_submission(
     )
     db.add(sub)
     await db.flush()
-    key = storage.upload_recording(data, file.content_type or "audio/webm", ctx.family_id, sub.id)
-    sub.recording_key = key
+    fam = await db.get(models.Family, ctx.family_id)
+    if fam is not None and fam.recording_consent_at is None:
+        # Tanpa persetujuan, anak tetap belajar tetapi rekaman tidak disimpan.
+        sub.recording_key = "tidak-disimpan"
+        sub.recording_deleted_at = datetime.now(timezone.utc)
+        data = b""
+    else:
+        key = storage.upload_recording(data, file.content_type or "audio/webm", ctx.family_id, sub.id)
+        sub.recording_key = key
     if context == models.SubmissionContext.tahsin:
         member.tahsin_status = models.TahsinStatus.pending_eval
     await _process_ai_inline(db, sub, data, file.content_type or "audio/webm")
@@ -215,6 +225,8 @@ async def evaluate_submission(
 
     if sub.status != models.SubmissionStatus.pending_eval:
         return _submission_out(sub, member)
+    if await teaching.active_link(db, sub.member_id):
+        raise HTTPException(403, "Penilaian dilakukan guru yang terhubung")
 
     await setor_flow.apply_submission_evaluation(db, sub, member, payload)
     return _submission_out(sub, member)

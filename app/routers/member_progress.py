@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import models
 from app.database import get_db
 from app.deps import AuthContext, get_current_context, require_parent
-from app.services import tahsin_points
+from app.services import tahsin_points, teaching
 
 router = APIRouter(tags=["member-progress"])
 
@@ -72,6 +72,8 @@ async def update_member_settings(
 ):
     """Kedua orang tua boleh mengatur (tanpa guru). Setelah ada guru terhubung, guru yang mengatur."""
     await _member_of_family(db, member_id, ctx.family_id)
+    if await teaching.active_link(db, member_id):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Pengaturan ini diatur guru yang terhubung")
     if payload.daily_ayahs is not None and payload.daily_ayahs not in DAILY_AYAHS:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Kecepatan harus 1, 2, 3, atau 5 ayat per hari")
     if payload.murajaah_strong_days is not None and payload.murajaah_strong_days not in STRONG_DAYS:
@@ -122,6 +124,8 @@ async def tahsin_point_result(
     if point < 1 or point > 9:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Pulau tidak ditemukan")
     member = await _member_of_family(db, member_id, ctx.family_id)
+    if await teaching.active_link(db, member_id):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Penilaian dilakukan guru yang terhubung")
     await tahsin_points.record_result(
         db, member, point, payload.score, "parent", ctx.subject_id, payload.approve_below_threshold
     )
