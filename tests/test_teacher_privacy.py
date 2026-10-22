@@ -198,3 +198,11 @@ def test_overdue_follows_teacher_target():
     assert teaching.is_overdue(s, t)
     t.grading_target_hours = 48
     assert not teaching.is_overdue(s, t)
+
+
+async def test_teacher_sees_student_points_requires_link(client):
+    r = await client.post("/teacher/register", json={"name": "Ustazah X", "email": "x@t.id", "password": "password123"})
+    h = {"Authorization": f"Bearer {r.json()['access_token']}"}
+    import uuid
+    res = await client.get(f"/teacher/students/{uuid.uuid4()}/points", headers=h)
+    assert res.status_code == 404

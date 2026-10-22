@@ -280,6 +280,12 @@ async def point_result(member_id: uuid.UUID, point: int, payload: PointIn,
     return await tahsin_points.overview(db, member_id)
 
 
+@router.get("/students/{member_id}/points")
+async def student_points(member_id: uuid.UUID, t: models.Teacher = Depends(require_teacher), db: AsyncSession = Depends(get_db)):
+    await _student_link(db, t, member_id)
+    return await tahsin_points.overview(db, member_id)
+
+
 @router.get("/students/{member_id}/settings", response_model=MemberSettingsOut)
 async def student_settings(member_id: uuid.UUID, t: models.Teacher = Depends(require_teacher), db: AsyncSession = Depends(get_db)):
     await _student_link(db, t, member_id)
