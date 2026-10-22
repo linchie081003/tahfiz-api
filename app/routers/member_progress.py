@@ -23,12 +23,14 @@ class MemberSettingsOut(BaseModel):
     daily_ayahs: int = 1
     murajaah_strong_days: int = 14
     set_by: str = "parent"
+    parallel_hafalan: bool = False
 
 
 class MemberSettingsIn(BaseModel):
     coverage: Literal["juz30", "all"] | None = None
     daily_ayahs: int | None = None
     murajaah_strong_days: int | None = None
+    parallel_hafalan: bool | None = None
 
 
 class PointResultIn(BaseModel):
@@ -60,6 +62,7 @@ async def read_member_settings(
     return MemberSettingsOut(
         coverage=row.coverage, daily_ayahs=row.daily_ayahs,
         murajaah_strong_days=row.murajaah_strong_days, set_by=row.set_by,
+        parallel_hafalan=bool(row.parallel_hafalan),
     )
 
 
@@ -83,7 +86,7 @@ async def update_member_settings(
         row = models.MemberSettings(member_id=member_id, coverage="juz30", daily_ayahs=1,
                                     murajaah_strong_days=14, set_by="parent")
         db.add(row)
-    for field in ("coverage", "daily_ayahs", "murajaah_strong_days"):
+    for field in ("coverage", "daily_ayahs", "murajaah_strong_days", "parallel_hafalan"):
         value = getattr(payload, field)
         if value is not None:
             setattr(row, field, value)
@@ -92,6 +95,7 @@ async def update_member_settings(
     return MemberSettingsOut(
         coverage=row.coverage, daily_ayahs=row.daily_ayahs,
         murajaah_strong_days=row.murajaah_strong_days, set_by=row.set_by,
+        parallel_hafalan=bool(row.parallel_hafalan),
     )
 
 

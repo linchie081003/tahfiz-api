@@ -23,7 +23,7 @@ async def assert_ziyadah_setor_allowed(
 ) -> models.MemberSurahProgress:
     if surah_id is None or ayah_start is None:
         raise HTTPException(409, "Setoran ziyadah wajib surah_id dan ayah_start")
-    if member.tahsin_status != TahsinStatus.passed:
+    if not await progress.hafalan_unlocked(db, member):
         raise HTTPException(409, "Selesaikan Tahsin dulu")
 
     active = await progress.get_active_surah(db, member.id)

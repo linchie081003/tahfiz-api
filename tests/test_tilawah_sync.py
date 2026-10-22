@@ -25,3 +25,20 @@ async def test_state_is_per_child(client):
     if True:
         ct = imp.json()["access_token"]
         assert (await client.get("/tilawah", headers=H(ct))).json() == {}
+
+
+async def test_parallel_hafalan_unlocks_menus_without_tahsin(client):
+    from tests.helpers import add_child
+
+    reg = await register(client)
+    tok = reg["access_token"]
+    cid = await add_child(client, tok)
+    child = (await client.post("/auth/child-login", json={"access_code": reg["family_access_code"], "child_id": cid, "pin": ""})).json()["access_token"]
+    home = (await client.get("/home", headers=H(child))).json()
+    assert home["menu_locks"]["ziyadah"] and home["menu_locks"]["murojaah"]
+    r = await client.put(f"/members/{cid}/settings", headers=H(tok), json={"parallel_hafalan": True})
+    assert r.status_code == 200 and r.json()["parallel_hafalan"] is True
+    home = (await client.get("/home", headers=H(child))).json()
+    assert home["menu_locks"]["ziyadah"] == "" and home["menu_locks"]["murojaah"] == ""
+    await client.put(f"/members/{cid}/settings", headers=H(tok), json={"parallel_hafalan": False})
+    assert (await client.get("/home", headers=H(child))).json()["menu_locks"]["ziyadah"]
