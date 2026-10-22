@@ -42,3 +42,36 @@ async def test_parallel_hafalan_unlocks_menus_without_tahsin(client):
     assert home["menu_locks"]["ziyadah"] == "" and home["menu_locks"]["murojaah"] == ""
     await client.put(f"/members/{cid}/settings", headers=H(tok), json={"parallel_hafalan": False})
     assert (await client.get("/home", headers=H(child))).json()["menu_locks"]["ziyadah"]
+
+
+async def test_hafalan_track_mushaf_starts_from_fatihah(client):
+    from app import models
+    from tests.helpers import add_child
+
+    reg = await register(client)
+    tok = reg["access_token"]
+    cid = await add_child(client, tok)
+    child = (await client.post("/auth/child-login", json={"access_code": reg["family_access_code"], "child_id": cid, "pin": ""})).json()["access_token"]
+    # katalog uji: Al-Fatihah, Al-Baqarah, dan satu surat juz 30
+    from sqlalchemy.ext.asyncio import AsyncSession
+    from app.database import get_db
+    from app.main import app
+
+    gen = app.dependency_overrides[get_db]()
+    db: AsyncSession = await gen.__anext__()
+    for sid, name, n, juz in ((1, "Al-Fatihah", 7, 1), (2, "Al-Baqarah", 286, 1), (114, "An-Nas", 6, 30)):
+        if not await db.get(models.Surah, sid):
+            db.add(models.Surah(id=sid, name_ar="x", name_id=name, ayah_count=n, juz_number=juz, curriculum_order=sid))
+    await db.commit()
+    await client.put(f"/members/{cid}/settings", headers=H(tok), json={"parallel_hafalan": True})
+    # bawaan: jalur Juz 30
+    assert (await client.get("/peta/juz/30", headers=H(child))).json()["track"] == "juz30"
+    # semua surat + mulai dari Al-Fatihah
+    r = await client.put(f"/members/{cid}/settings", headers=H(tok), json={"coverage": "all", "hafalan_track": "mushaf"})
+    assert r.status_code == 200 and r.json()["hafalan_track"] == "mushaf"
+    peta = (await client.get("/peta/juz/30", headers=H(child))).json()
+    assert peta["track"] == "mushaf" and peta["active_surah_id"] == 1
+    assert [n["surah_id"] for n in peta["nodes"]][:2] == [1, 2]
+    # kembali ke Juz 30
+    await client.put(f"/members/{cid}/settings", headers=H(tok), json={"hafalan_track": "juz30"})
+    assert (await client.get("/peta/juz/30", headers=H(child))).json()["track"] == "juz30"
