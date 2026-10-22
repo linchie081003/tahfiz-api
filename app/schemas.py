@@ -264,6 +264,7 @@ class PetaNodeOut(BaseModel):
 
 class PetaOut(BaseModel):
     juz_number: int
+    track: str = "juz30"
     passed_count: int
     total_count: int
     active_surah_id: int | None

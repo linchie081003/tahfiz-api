@@ -291,7 +291,7 @@ async def student_settings(member_id: uuid.UUID, t: models.Teacher = Depends(req
     await _student_link(db, t, member_id)
     row = await get_member_settings(db, member_id)
     return MemberSettingsOut(coverage=row.coverage, daily_ayahs=row.daily_ayahs, murajaah_strong_days=row.murajaah_strong_days,
-                             set_by=row.set_by, parallel_hafalan=bool(row.parallel_hafalan)) if row else MemberSettingsOut()
+                             set_by=row.set_by, parallel_hafalan=bool(row.parallel_hafalan), hafalan_track=row.hafalan_track or "juz30") if row else MemberSettingsOut()
 
 
 @router.put("/students/{member_id}/settings", response_model=MemberSettingsOut)
@@ -302,17 +302,25 @@ async def set_student_settings(member_id: uuid.UUID, payload: MemberSettingsIn,
         raise HTTPException(422, "Kecepatan harus 1, 2, 3, atau 5 ayat per hari")
     if payload.murajaah_strong_days is not None and payload.murajaah_strong_days not in STRONG_DAYS:
         raise HTTPException(422, "Interval 'Kuat' harus 7 atau 14 hari")
+    if payload.coverage == "all" or payload.hafalan_track == "mushaf":
+        from app.services.quran_com_import import ensure_chapter_catalog
+
+        await ensure_chapter_catalog(db)
     row = await get_member_settings(db, member_id)
     if not row:
         row = models.MemberSettings(member_id=member_id, coverage="juz30", daily_ayahs=1, murajaah_strong_days=14)
         db.add(row)
-    for f in ("coverage", "daily_ayahs", "murajaah_strong_days", "parallel_hafalan"):
+    for f in ("coverage", "daily_ayahs", "murajaah_strong_days", "parallel_hafalan", "hafalan_track"):
         v = getattr(payload, f)
         if v is not None:
             setattr(row, f, v)
     row.set_by = "teacher"
     await db.flush()
-    return MemberSettingsOut(coverage=row.coverage, daily_ayahs=row.daily_ayahs, murajaah_strong_days=row.murajaah_strong_days, set_by="teacher", parallel_hafalan=bool(row.parallel_hafalan))
+    if payload.coverage is not None or payload.hafalan_track is not None:
+        from app.services import progress as _progress
+        await _progress.set_track(db, member_id, await _progress.effective_track(db, member_id))
+        await db.refresh(row)
+    return MemberSettingsOut(coverage=row.coverage, daily_ayahs=row.daily_ayahs, murajaah_strong_days=row.murajaah_strong_days, set_by="teacher", parallel_hafalan=bool(row.parallel_hafalan), hafalan_track=row.hafalan_track or "juz30")
 
 
 @router.get("/students/{member_id}/placement")

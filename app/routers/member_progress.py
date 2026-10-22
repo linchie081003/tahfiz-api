@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import models
 from app.database import get_db
 from app.deps import AuthContext, get_current_context, require_parent
-from app.services import tahsin_points, teaching
+from app.services import progress, tahsin_points, teaching
 
 router = APIRouter(tags=["member-progress"])
 
@@ -24,6 +24,7 @@ class MemberSettingsOut(BaseModel):
     murajaah_strong_days: int = 14
     set_by: str = "parent"
     parallel_hafalan: bool = False
+    hafalan_track: str = "juz30"
 
 
 class MemberSettingsIn(BaseModel):
@@ -31,6 +32,7 @@ class MemberSettingsIn(BaseModel):
     daily_ayahs: int | None = None
     murajaah_strong_days: int | None = None
     parallel_hafalan: bool | None = None
+    hafalan_track: Literal["juz30", "mushaf"] | None = None
 
 
 class PointResultIn(BaseModel):
@@ -62,7 +64,7 @@ async def read_member_settings(
     return MemberSettingsOut(
         coverage=row.coverage, daily_ayahs=row.daily_ayahs,
         murajaah_strong_days=row.murajaah_strong_days, set_by=row.set_by,
-        parallel_hafalan=bool(row.parallel_hafalan),
+        parallel_hafalan=bool(row.parallel_hafalan), hafalan_track=row.hafalan_track or "juz30",
     )
 
 
@@ -81,21 +83,28 @@ async def update_member_settings(
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Kecepatan harus 1, 2, 3, atau 5 ayat per hari")
     if payload.murajaah_strong_days is not None and payload.murajaah_strong_days not in STRONG_DAYS:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Interval 'Kuat' harus 7 atau 14 hari")
+    if payload.coverage == "all" or payload.hafalan_track == "mushaf":
+        from app.services.quran_com_import import ensure_chapter_catalog
+
+        await ensure_chapter_catalog(db)  # sebelum mengubah apa pun, agar kegagalan jaringan tidak membatalkan pengaturan
     row = await get_member_settings(db, member_id)
     if not row:
         row = models.MemberSettings(member_id=member_id, coverage="juz30", daily_ayahs=1,
                                     murajaah_strong_days=14, set_by="parent")
         db.add(row)
-    for field in ("coverage", "daily_ayahs", "murajaah_strong_days", "parallel_hafalan"):
+    for field in ("coverage", "daily_ayahs", "murajaah_strong_days", "parallel_hafalan", "hafalan_track"):
         value = getattr(payload, field)
         if value is not None:
             setattr(row, field, value)
     row.set_by = "parent"
     await db.flush()
+    if payload.coverage is not None or payload.hafalan_track is not None:
+        await progress.set_track(db, member_id, await progress.effective_track(db, member_id))
+        await db.refresh(row)
     return MemberSettingsOut(
         coverage=row.coverage, daily_ayahs=row.daily_ayahs,
         murajaah_strong_days=row.murajaah_strong_days, set_by=row.set_by,
-        parallel_hafalan=bool(row.parallel_hafalan),
+        parallel_hafalan=bool(row.parallel_hafalan), hafalan_track=row.hafalan_track or "juz30",
     )
 
 

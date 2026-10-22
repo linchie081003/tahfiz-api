@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import models, schemas
 from app.database import get_db
 from app.deps import AuthContext, get_current_context, optional_member_id
+from app.services import progress as progress_svc
 from app.services.juz30 import list_juz30_surahs
 
 router = APIRouter(prefix="/peta", tags=["peta"])
@@ -16,7 +17,8 @@ async def peta_juz30(
     ctx: AuthContext = Depends(get_current_context),
     db: AsyncSession = Depends(get_db),
 ):
-    surahs = await list_juz30_surahs(db)
+    track = await progress_svc.effective_track(db, member_id) if member_id else "juz30"
+    surahs = await progress_svc.track_surahs(db, track)
 
     if ctx.role == "parent" and member_id is None:
         nodes = [
@@ -32,6 +34,7 @@ async def peta_juz30(
         first = surahs[0] if surahs else None
         return schemas.PetaOut(
             juz_number=30,
+            track="juz30",
             passed_count=0,
             total_count=len(surahs),
             active_surah_id=first.id if first else None,
@@ -95,7 +98,8 @@ async def peta_juz30(
     elif parent_open:
         unlock_hint = "Orang tua — semua modul terbuka; progress mengikuti profil anak yang dipilih"
     return schemas.PetaOut(
-        juz_number=30,
+        juz_number=30 if track == "juz30" else 0,
+        track=track,
         passed_count=passed,
         total_count=len(surahs),
         active_surah_id=active_id,
