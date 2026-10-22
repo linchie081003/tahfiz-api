@@ -76,5 +76,10 @@ async def tahsin_curriculum_for_point(
     out = []
     for i, it in enumerate(items, start=1):
         ex = it["example"]
-        out.append({**it, "index": i, "audio_url": everyayah_url(ex["surah_id"], ex["ayah"], rid)})
+        out.append({
+            **it, "index": i,
+            "audio_urls": tahsin_curriculum.word_urls(point, i),
+            "audio_fallback_urls": tahsin_curriculum.word_urls(point, i, tahsin_curriculum.WBW_FALLBACK_BASE),
+            "audio_url": everyayah_url(ex["surah_id"], ex["ayah"], rid),  # cadangan: seluruh ayat contoh
+        })
     return {"point": point, "items": out, "draft": tahsin_curriculum.DRAFT}
