@@ -104,3 +104,11 @@ async def test_tahsin_curriculum_has_three_items_per_point(client):
         assert r.status_code == 200, r.text
         assert len(r.json()["items"]) == 3 and r.json()["items"][0]["audio_url"]
     assert (await client.get("/tahsin/curriculum/10", headers=h)).status_code == 404
+
+
+async def test_tahsin_curriculum_has_word_audio_for_every_item(client):
+    from app.services import tahsin_curriculum as tc
+    for p, items in tc.CURRICULUM.items():
+        for i in range(1, len(items) + 1):
+            urls = tc.word_urls(p, i)
+            assert urls and all(u.endswith(".mp3") and "/wbw/" in u for u in urls), (p, i)

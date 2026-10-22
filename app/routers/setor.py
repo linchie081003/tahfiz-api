@@ -150,7 +150,7 @@ async def reprocess_precheck(
         ai_status=sub.ai_status,
         ai_insights=sub.ai_insights,
         rubric_scores=sub.rubric_scores,
-        recording_url=storage.presigned_recording_url(sub.recording_key, sub.family_id, sub.id),
+        recording_url=None if sub.recording_deleted_at else storage.presigned_recording_url(sub.recording_key, sub.family_id, sub.id),
         created_at=sub.created_at,
         member_name=member.name if member else None,
     )
@@ -185,7 +185,7 @@ async def evaluator_queue(ctx: AuthContext = Depends(require_parent), db: AsyncS
                 ai_status=s.ai_status,
                 ai_insights=s.ai_insights,
                 rubric_scores=s.rubric_scores,
-                recording_url=storage.presigned_recording_url(s.recording_key, s.family_id, s.id),
+                recording_url=None if s.recording_deleted_at else storage.presigned_recording_url(s.recording_key, s.family_id, s.id),
                 created_at=s.created_at,
                 member_name=member.name if member else None,
             )
@@ -203,7 +203,7 @@ def _submission_out(sub: models.Submission, member: models.Member | None) -> sch
         ai_status=sub.ai_status,
         ai_insights=sub.ai_insights,
         rubric_scores=sub.rubric_scores,
-        recording_url=storage.presigned_recording_url(sub.recording_key, sub.family_id, sub.id),
+        recording_url=None if sub.recording_deleted_at else storage.presigned_recording_url(sub.recording_key, sub.family_id, sub.id),
         created_at=sub.created_at,
         member_name=member.name if member else None,
     )

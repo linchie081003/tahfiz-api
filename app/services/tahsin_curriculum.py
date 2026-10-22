@@ -30,7 +30,7 @@ CURRICULUM: dict[int, list[dict]] = {
     ],
     4: [
         _I("ثَ سَ صَ", "ث, س, ص", "ث ujung lidah di antara gigi, س ujung lidah dekat gigi bawah, ص tebal.", 108, 1, None, "س"),
-        _I("ذَ زَ ظَ", "ذ, ز, ظ", "ذ lidah di antara gigi, ز lidah dekat gigi dengan suara berdengung, ظ tebal.", 1, 7),
+        _I("ذَ ضَ", "ذ dan ض", "ذ ujung lidah di antara gigi dan suaranya tipis, ض tebal dengan lidah naik.", 1, 7),
         _I("تَ طَ", "ت dan ط", "ت tipis dengan ujung lidah ke gigi atas, ط tebal dan lidah naik.", 1, 6),
     ],
     5: [
@@ -41,7 +41,7 @@ CURRICULUM: dict[int, list[dict]] = {
     6: [
         _I("تَرْمِيهِم بِحِجَارَةٍ", "Ikhfa syafawi", "Mim sukun bertemu ب dibaca samar di bibir dengan dengung.", 105, 4),
         _I("عَلَيْهِمْ وَلَا", "Idzhar syafawi", "Mim sukun bertemu huruf selain م dan ب dibaca jelas.", 1, 7),
-        _I("ثُمَّ", "Mim bertasydid", "Mim bertasydid dibaca dengan dengung sekitar dua harakat.", 102, 3),
+        _I("ثُمَّ", "Mim bertasydid", "Mim bertasydid dibaca dengan dengung sekitar dua harakat.", 102, 4),
     ],
     7: [
         _I("جَاءَ", "Mad wajib muttasil", "Mad bertemu hamzah dalam satu kata dibaca panjang.", 110, 1),
@@ -59,3 +59,26 @@ CURRICULUM: dict[int, list[dict]] = {
         _I("الْفِيلِ", "Berhenti di akhir ayat", "Berhenti di akhir ayat dengan napas cukup, lalu mulai ayat berikutnya dengan jelas.", 105, 1),
     ],
 }
+
+
+# Kata contoh per latihan: (surat, ayat, nomor kata). Audio per kata dari Quran.com (wbw), sehingga
+# yang terdengar adalah kata pendek yang memuat huruf/hukum tersebut, bukan seluruh ayat.
+# Urutan kata mengikuti urutan huruf yang tampil di layar. DRAF: perlu divalidasi ustaz.
+WORDS: dict[tuple[int, int], list[tuple[int, int, int]]] = {
+    (1, 1): [(1, 6, 2)], (1, 2): [(1, 7, 3)], (1, 3): [(112, 1, 1)],
+    (2, 1): [(1, 6, 2), (99, 7, 5), (1, 7, 9), (1, 7, 5), (112, 1, 1)],
+    (2, 2): [(112, 1, 4)], (2, 3): [(1, 2, 1), (1, 2, 2)],
+    (3, 1): [(1, 1, 1)], (3, 2): [(1, 2, 4)], (3, 3): [(112, 1, 4)],
+    (4, 1): [(108, 1, 3), (1, 6, 3), (1, 6, 2)], (4, 2): [(1, 7, 2), (1, 7, 9)], (4, 3): [(1, 6, 3), (1, 6, 2)],
+    (5, 1): [(1, 7, 3)], (5, 2): [(99, 7, 1), (99, 7, 2)], (5, 3): [(109, 3, 2)],
+    (6, 1): [(105, 4, 1), (105, 4, 2)], (6, 2): [(1, 7, 7), (1, 7, 8)], (6, 3): [(102, 4, 1)],
+    (7, 1): [(110, 1, 2)], (7, 2): [(108, 1, 1), (108, 1, 2)], (7, 3): [(69, 1, 1)],
+    (8, 1): [(112, 1, 3)], (8, 2): [(1, 2, 3)], (8, 3): [(89, 10, 1)],
+    (9, 1): [(112, 1, 4)], (9, 2): [(101, 1, 1)], (9, 3): [(105, 1, 7)],
+}
+WBW_BASE = "https://audio.qurancdn.com/wbw/"
+WBW_FALLBACK_BASE = "https://verses.quran.com/wbw/"
+
+
+def word_urls(point: int, index: int, base: str = WBW_BASE) -> list[str]:
+    return [f"{base}{s:03d}_{a:03d}_{w:03d}.mp3" for s, a, w in WORDS.get((point, index), [])]

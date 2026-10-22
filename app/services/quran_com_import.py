@@ -1,11 +1,15 @@
 """Muat metadata surat + ayat dari Quran.com API v4 (on-demand atau batch)."""
 
+import logging
+
 import httpx
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Ayah, Surah
 from app.services.surah_names_id import indonesian_surah_name
+
+logger = logging.getLogger(__name__)
 
 
 async def fetch_chapters(client: httpx.AsyncClient, *, language: str = "id") -> list[dict]:
@@ -123,23 +127,32 @@ async def ensure_chapter_catalog(db: AsyncSession) -> None:
     ).scalar_one()
     if count >= 114 and juz30 > 0:
         return
-    async with httpx.AsyncClient() as client:
-        for ch in await fetch_chapters(client):
-            await upsert_surah_from_chapter(db, ch)
-    await db.commit()
+    try:
+        async with httpx.AsyncClient() as client:
+            for ch in await fetch_chapters(client):
+                await upsert_surah_from_chapter(db, ch)
+        await db.commit()
+    except (httpx.HTTPError, OSError) as e:  # sumber luar tak terjangkau: pakai data yang sudah ada
+        logger.warning("Katalog surat dari Quran.com gagal dimuat: %s", e)
+        await db.rollback()
 
 
 async def ensure_surah_ayahs(db: AsyncSession, surah_id: int) -> None:
     surah = await db.get(Surah, surah_id)
     if not surah:
-        async with httpx.AsyncClient() as client:
-            chapters = await fetch_chapters(client)
-            ch = next((c for c in chapters if int(c["id"]) == surah_id), None)
-            if not ch:
-                return
-            await upsert_surah_from_chapter(db, ch)
-            await db.commit()
-            surah = await db.get(Surah, surah_id)
+        try:
+            async with httpx.AsyncClient() as client:
+                chapters = await fetch_chapters(client)
+                ch = next((c for c in chapters if int(c["id"]) == surah_id), None)
+                if not ch:
+                    return
+                await upsert_surah_from_chapter(db, ch)
+                await db.commit()
+                surah = await db.get(Surah, surah_id)
+        except (httpx.HTTPError, OSError) as e:
+            logger.warning("Surat %s gagal dimuat dari Quran.com: %s", surah_id, e)
+            await db.rollback()
+            return
     if not surah:
         return
     loaded = (
@@ -147,6 +160,10 @@ async def ensure_surah_ayahs(db: AsyncSession, surah_id: int) -> None:
     ).scalar_one()
     if loaded >= surah.ayah_count:
         return
-    async with httpx.AsyncClient() as client:
-        await import_surah_ayahs(db, surah_id, client)
-    await db.commit()
+    try:
+        async with httpx.AsyncClient() as client:
+            await import_surah_ayahs(db, surah_id, client)
+        await db.commit()
+    except (httpx.HTTPError, OSError) as e:
+        logger.warning("Ayat surat %s gagal dimuat dari Quran.com: %s", surah_id, e)
+        await db.rollback()
