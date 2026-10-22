@@ -112,3 +112,20 @@ async def test_tahsin_curriculum_has_word_audio_for_every_item(client):
         for i in range(1, len(items) + 1):
             urls = tc.word_urls(p, i)
             assert urls and all(u.endswith(".mp3") and "/wbw/" in u for u in urls), (p, i)
+
+
+async def test_ensure_tajweed_fills_markup(db_session, monkeypatch):
+    from app.models import Ayah, Surah
+    from app.services import quran_com_import as q
+
+    async def fake_map(_client, surah_id):
+        return {1: "<tajweed class=ham_wasl>ٱ</tajweed>للَّهِ"}
+
+    monkeypatch.setattr(q, "fetch_tajweed_map", fake_map)
+    q._TAJWEED_TRIED.discard(114)
+    db_session.add(Surah(id=114, name_ar="الناس", name_id="An-Nas", ayah_count=1, juz_number=30, curriculum_order=1))
+    db_session.add(Ayah(surah_id=114, ayah_number=1, text_uthmani="ٱللَّهِ", text_tajweed="ٱللَّهِ", tajwid_markup={"rules": []}))
+    await db_session.flush()
+    await q.ensure_tajweed(db_session, 114)
+    a = (await db_session.execute(__import__("sqlalchemy").select(Ayah).where(Ayah.surah_id == 114))).scalars().first()
+    assert "<tajweed" in a.text_tajweed

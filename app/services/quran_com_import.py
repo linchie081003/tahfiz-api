@@ -167,3 +167,31 @@ async def ensure_surah_ayahs(db: AsyncSession, surah_id: int) -> None:
     except (httpx.HTTPError, OSError) as e:
         logger.warning("Ayat surat %s gagal dimuat dari Quran.com: %s", surah_id, e)
         await db.rollback()
+
+
+_TAJWEED_TRIED: set[int] = set()
+
+
+async def ensure_tajweed(db: AsyncSession, surah_id: int) -> None:
+    """Isi teks tajwid (markup berwarna) untuk ayat yang masih polos. Dicoba sekali per surat per proses; gagal tidak fatal."""
+    if surah_id in _TAJWEED_TRIED:
+        return
+    rows = (await db.execute(select(Ayah).where(Ayah.surah_id == surah_id))).scalars().all()
+    if not rows or all("<tajweed" in (a.text_tajweed or "") for a in rows):
+        return
+    _TAJWEED_TRIED.add(surah_id)
+    try:
+        async with httpx.AsyncClient() as client:
+            tmap = await fetch_tajweed_map(client, surah_id)
+        changed = False
+        for a in rows:
+            t = tmap.get(a.ayah_number)
+            if t and "<tajweed" in t and t != a.text_tajweed:
+                a.text_tajweed = t
+                changed = True
+        if changed:
+            await db.commit()
+    except (httpx.HTTPError, OSError) as e:
+        logger.warning("Tajwid surat %s gagal dimuat: %s", surah_id, e)
+        _TAJWEED_TRIED.discard(surah_id)
+        await db.rollback()

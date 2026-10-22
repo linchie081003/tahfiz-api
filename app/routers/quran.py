@@ -7,7 +7,7 @@ from app.database import get_db
 from app.deps import AuthContext, get_current_context
 from app.models import AgeMode
 from app.services.juz30 import list_juz30_surahs
-from app.services.quran_com_import import ensure_chapter_catalog, ensure_surah_ayahs
+from app.services.quran_com_import import ensure_chapter_catalog, ensure_surah_ayahs, ensure_tajweed
 from app.services.reciters import (
     default_reciter_for_age,
     everyayah_url,
@@ -116,6 +116,7 @@ async def ayahs(
     if not surah:
         raise HTTPException(404, "Surat tidak ditemukan")
     await ensure_surah_ayahs(db, surah_id)
+    await ensure_tajweed(db, surah_id)
     rows = (
         await db.execute(select(models.Ayah).where(models.Ayah.surah_id == surah_id).order_by(models.Ayah.ayah_number))
     ).scalars().all()
