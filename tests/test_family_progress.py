@@ -75,3 +75,21 @@ async def test_placement_child_sets_and_reads(client):
     assert (await client.put("/placement", json={"level": "basic"}, headers=h)).json() == {"placement": "basic"}
     assert (await client.get("/placement", headers=h)).json()["placement"] == "basic"
     assert (await client.put("/placement", json={"level": "zzz"}, headers=h)).status_code == 422
+
+
+async def test_badge_awarded_without_seeded_definitions(db_session):
+    """Regresi produksi: lencana tahsin_lulus gagal FK bila badge_definitions belum di-seed."""
+    from sqlalchemy import select
+    from app import models
+    from app.services import gamification
+    fam = models.Family(name="K", access_code="123456")
+    db_session.add(fam)
+    await db_session.flush()
+    m = models.Member(family_id=fam.id, name="A", tahsin_status=models.TahsinStatus.passed)
+    db_session.add(m)
+    await db_session.flush()
+    stats = await gamification.ensure_member_stats(db_session, m.id)
+    await gamification.maybe_award_badges(db_session, m.id, stats)
+    await db_session.flush()
+    got = (await db_session.execute(select(models.MemberBadge).where(models.MemberBadge.member_id == m.id))).scalars().all()
+    assert [b.badge_id for b in got] == ["tahsin_lulus"]

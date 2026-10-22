@@ -19,6 +19,15 @@ async def lifespan(app: FastAPI):
             "(contoh: postgresql+asyncpg://hafiz:hafiz_dev@localhost:5432/hafiz). "
             "Lihat docs/setup-postgresql-lokal.md"
         ) from e
+    try:
+        from app.database import AsyncSessionLocal
+        from app.services import gamification
+
+        async with AsyncSessionLocal() as session:
+            await gamification.ensure_reference_data(session)
+            await session.commit()
+    except Exception:  # data rujukan juga dijamin saat dipakai; jangan gagalkan startup
+        pass
     yield
 
 
