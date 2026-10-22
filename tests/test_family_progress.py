@@ -129,3 +129,13 @@ async def test_ensure_tajweed_fills_markup(db_session, monkeypatch):
     await q.ensure_tajweed(db_session, 114)
     a = (await db_session.execute(__import__("sqlalchemy").select(Ayah).where(Ayah.surah_id == 114))).scalars().first()
     assert "<tajweed" in a.text_tajweed
+
+
+def test_focus_chars_exist_in_arabic_text():
+    from app.services.tahsin_curriculum import CURRICULUM
+
+    for point, items in CURRICULUM.items():
+        for it in items:
+            assert it.get("focus"), (point, it["title"])
+            for ch in it["focus"]:
+                assert ch in it["arabic"], (point, it["title"], hex(ord(ch)))
