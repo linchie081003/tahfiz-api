@@ -95,6 +95,10 @@ class ParentChildSummaryOut(BaseModel):
     level: int
     passed_surahs: int
     pending_setor: int
+    tahsin_line: str = ""
+    hafalan_line: str = ""
+    murajaah_due: int = 0
+    murajaah_surah: str = ""
 
 
 class ParentDashboardOut(BaseModel):

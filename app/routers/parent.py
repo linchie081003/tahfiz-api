@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import models, schemas
 from app.database import get_db
 from app.deps import AuthContext, require_parent
-from app.services import gamification, weekly_report
+from app.services import gamification, murojaah, progress, weekly_report
 
 router = APIRouter(prefix="/parent", tags=["parent"])
 
@@ -56,6 +56,22 @@ async def parent_dashboard(ctx: AuthContext = Depends(require_parent), db: Async
                 )
             )
         ).scalar_one()
+        pts = (
+            await db.execute(select(models.TahsinPointProgress).where(models.TahsinPointProgress.member_id == m.id))
+        ).scalars().all()
+        done_pts = {r.point for r in pts if r.passed}
+        nxt = next((n for n in range(1, 10) if n not in done_pts), None)
+        tahsin_line = "Semua Pulau lulus" if nxt is None else f"Pulau {nxt}, {len(done_pts)} dari 9 lulus"
+        active = await progress.get_active_surah(db, m.id)
+        hafalan_line = ""
+        if active:
+            sr = await db.get(models.Surah, active.surah_id)
+            hafalan_line = f"{sr.name_id if sr else 'Surat'}, ayat {active.current_ayah}"
+        due = await murojaah.due_items(db, m.id, 50) if m.tahsin_status == models.TahsinStatus.passed else []
+        due_name = ""
+        if due:
+            ds = await db.get(models.Surah, due[0].surah_id)
+            due_name = ds.name_id if ds else ""
         children.append(
             schemas.ParentChildSummaryOut(
                 id=m.id,
@@ -68,6 +84,10 @@ async def parent_dashboard(ctx: AuthContext = Depends(require_parent), db: Async
                 level=stats.level,
                 passed_surahs=passed,
                 pending_setor=pending,
+                tahsin_line=tahsin_line,
+                hafalan_line=hafalan_line,
+                murajaah_due=len(due),
+                murajaah_surah=due_name,
             )
         )
 
