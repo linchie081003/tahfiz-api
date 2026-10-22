@@ -144,6 +144,17 @@ async def home(
                 label="Dengarkan versi indah (Mujawwad) — hadiah setelah lulus",
             )
 
+    mission_items: dict[str, str] = {}
+    if tahsin_ok:
+        if due:
+            s0 = await db.get(models.Surah, due[0].surah_id)
+            if s0:
+                mission_items["murojaah"] = f"{s0.name_id}, {len(due)} ayat" if len(due) > 1 else s0.name_id
+        if active:
+            s1 = await db.get(models.Surah, active.surah_id)
+            if s1:
+                mission_items["ziyadah"] = f"{s1.name_id}, {member_target} ayat"
+
     return schemas.HomeOut(
         greeting_name=member.name,
         age_mode=member.age_mode,
@@ -161,4 +172,5 @@ async def home(
         level_progress=min(1.0, stats.xp / max(next_xp, 1)),
         beauty_reward=beauty_reward,
         parent_preview=False,
+        mission_items=mission_items,
     )
