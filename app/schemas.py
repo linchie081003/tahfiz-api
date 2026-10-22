@@ -245,6 +245,7 @@ class HomeOut(BaseModel):
     level_progress: float
     beauty_reward: BeautyRewardOut | None = None
     parent_preview: bool = False
+    mission_items: dict[str, str] = {}
 
 
 class PetaNodeOut(BaseModel):
