@@ -209,6 +209,20 @@ def _submission_out(sub: models.Submission, member: models.Member | None) -> sch
     )
 
 
+@router.get("/{submission_id}", response_model=schemas.SubmissionOut)
+async def get_submission(submission_id: uuid.UUID, ctx: AuthContext = Depends(get_current_context), db: AsyncSession = Depends(get_db)):
+    """Status satu setoran untuk layar hasil. Anak hanya melihat setorannya sendiri."""
+    sub = await db.get(models.Submission, submission_id)
+    if not sub or sub.family_id != ctx.family_id or (ctx.role == "child" and sub.member_id != ctx.member_id):
+        raise HTTPException(404, "Setoran tidak ditemukan")
+    member = await db.get(models.Member, sub.member_id)
+    return schemas.SubmissionOut(
+        id=sub.id, context=sub.context, surah_id=sub.surah_id, reference_text=sub.reference_text, status=sub.status,
+        ai_status=sub.ai_status, ai_insights=sub.ai_insights, rubric_scores=sub.rubric_scores,
+        recording_url=None, created_at=sub.created_at, member_name=member.name if member else None,
+    )
+
+
 @router.post("/{submission_id}/evaluate", response_model=schemas.SubmissionOut)
 async def evaluate_submission(
     submission_id: uuid.UUID,

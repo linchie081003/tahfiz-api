@@ -81,3 +81,16 @@ async def test_child_cannot_grant_consent(client, fake_stt):
     cid = await add_child(client, reg["access_token"])
     ctok = await _child_token(client, reg, cid)
     assert (await client.put("/settings/ai-consent", json={"granted": True}, headers=H(ctok))).status_code == 403
+
+
+async def test_child_reads_own_submission_status(client, fake_stt):
+    reg = await register(client)
+    tok = reg["access_token"]
+    cid = await add_child(client, tok)
+    ctok = await _child_token(client, reg, cid)
+    sid = (await _submit(client, ctok)).json()["id"]
+    r = await client.get(f"/setor/{sid}", headers=H(ctok))
+    assert r.status_code == 200 and r.json()["ai_status"] == "completed"
+    cid2 = await add_child(client, tok, name="Adik")
+    other = await _child_token(client, reg, cid2)
+    assert (await client.get(f"/setor/{sid}", headers=H(other))).status_code == 404
