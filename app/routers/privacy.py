@@ -36,6 +36,11 @@ class ReviewIn(BaseModel):
     approve: bool
 
 
+class DecideIn(BaseModel):
+    approve: bool
+    teacher_id: uuid.UUID | None = None
+
+
 class DeleteIn(BaseModel):
     member_id: uuid.UUID | None = None
     pin: str | None = None
@@ -434,12 +439,14 @@ async def list_transfers(t: models.Teacher = Depends(require_teacher), db: Async
     out = []
     for r in rows:
         fam = await db.get(models.Family, r.family_id)
-        out.append({"id": r.id, "family": fam.name if fam else "", "created_at": r.created_at})
+        kids = (await db.execute(select(models.Member).where(models.Member.family_id == r.family_id))).scalars().all()
+        out.append({"id": r.id, "family": fam.name if fam else "", "created_at": r.created_at, "children": len(kids),
+                    "has_teacher": any([await teaching.active_link(db, k.id) for k in kids])})
     return out
 
 
 @inst_router.post("/transfers/{req_id}/decide")
-async def decide_transfer(req_id: uuid.UUID, payload: ReviewIn, t: models.Teacher = Depends(require_teacher), db: AsyncSession = Depends(get_db)):
+async def decide_transfer(req_id: uuid.UUID, payload: DecideIn, t: models.Teacher = Depends(require_teacher), db: AsyncSession = Depends(get_db)):
     _require_admin(t)
     req = await db.get(models.TransferRequest, req_id)
     if not req or req.institution_id != t.institution_id or req.status != "pending":
@@ -453,12 +460,66 @@ async def decide_transfer(req_id: uuid.UUID, payload: ReviewIn, t: models.Teache
                  models.TeacherLink.status == "active"))).scalars().all()
         for l in links:  # guru lama tidak lagi melihat data anak
             l.status, l.recording_consent = "revoked", False
+        if payload.teacher_id:
+            teacher = await db.get(models.Teacher, payload.teacher_id)
+            if not teacher or teacher.institution_id != t.institution_id or teacher.status != "verified":
+                raise HTTPException(422, "Guru tidak valid untuk instansi ini")
+            members = (await db.execute(select(models.Member).where(models.Member.family_id == req.family_id))).scalars().all()
+            for m in members:
+                db.add(models.TeacherLink(teacher_id=teacher.id, family_id=req.family_id, member_id=m.id,
+                                          requested_by=t.id, status="active"))
     await db.flush()
     return {"status": req.status}
+
+
+async def _student_count(db: AsyncSession, teacher_id: uuid.UUID) -> int:
+    return len((await db.execute(select(models.TeacherLink).where(models.TeacherLink.teacher_id == teacher_id,
+                models.TeacherLink.status == "active"))).scalars().all())
 
 
 @inst_router.get("/teachers")
 async def institution_teachers(t: models.Teacher = Depends(require_teacher), db: AsyncSession = Depends(get_db)):
     _require_admin(t)
-    rows = (await db.execute(select(models.Teacher).where(models.Teacher.institution_id == t.institution_id))).scalars().all()
-    return [{"id": r.id, "name": r.name, "status": r.status, "is_admin": r.is_admin} for r in rows]
+    rows = (await db.execute(select(models.Teacher).where(models.Teacher.institution_id == t.institution_id)
+                             .order_by(models.Teacher.created_at))).scalars().all()
+    return [{"id": r.id, "name": r.name, "status": r.status, "is_admin": r.is_admin, "created_at": r.created_at,
+             "students": await _student_count(db, r.id)} for r in rows]
+
+
+@inst_router.post("/teachers/{teacher_id}/verify")
+async def verify_institution_teacher(teacher_id: uuid.UUID, payload: ReviewIn, t: models.Teacher = Depends(require_teacher), db: AsyncSession = Depends(get_db)):
+    _require_admin(t)
+    target = await db.get(models.Teacher, teacher_id)
+    if not target or target.institution_id != t.institution_id or target.is_admin:
+        raise HTTPException(404, "Guru tidak ditemukan")
+    target.status = "verified" if payload.approve else "rejected"
+    await db.flush()
+    return {"status": target.status}
+
+
+@inst_router.get("/families")
+async def institution_families(t: models.Teacher = Depends(require_teacher), db: AsyncSession = Depends(get_db)):
+    _require_admin(t)
+    fams = (await db.execute(select(models.Family).where(models.Family.institution_id == t.institution_id))).scalars().all()
+    out = []
+    for f in fams:
+        kids = (await db.execute(select(models.Member).where(models.Member.family_id == f.id))).scalars().all()
+        out.append({"id": f.id, "name": f.name, "children": len(kids)})
+    return out
+
+
+@inst_router.get("/summary")
+async def institution_summary(t: models.Teacher = Depends(require_teacher), db: AsyncSession = Depends(get_db)):
+    """Ringkasan dan status saja. Admin tidak mendengar rekaman dan tidak melihat isi belajar anak."""
+    _require_admin(t)
+    inst = await db.get(models.Institution, t.institution_id)
+    teachers = (await db.execute(select(models.Teacher).where(models.Teacher.institution_id == t.institution_id))).scalars().all()
+    students = 0
+    for x in teachers:
+        students += await _student_count(db, x.id)
+    fams = (await db.execute(select(models.Family).where(models.Family.institution_id == t.institution_id))).scalars().all()
+    transfers = (await db.execute(select(models.TransferRequest).where(models.TransferRequest.institution_id == t.institution_id,
+                 models.TransferRequest.status == "pending"))).scalars().all()
+    return {"name": inst.name, "invite_code": inst.invite_code, "teachers": len([x for x in teachers if x.status == "verified"]),
+            "students": students, "families": len(fams), "pending_teachers": len([x for x in teachers if x.status == "pending"]),
+            "pending_transfers": len(transfers)}

@@ -206,3 +206,22 @@ async def test_teacher_sees_student_points_requires_link(client):
     import uuid
     res = await client.get(f"/teacher/students/{uuid.uuid4()}/points", headers=h)
     assert res.status_code == 404
+
+
+async def test_admin_summary_verify_and_assign_teacher_on_transfer(client):
+    tok, tok2, cid, ctok = await setup_family(client)
+    admin = await reg_teacher(client, "admin2@x.com")
+    inst = (await client.post("/institution", json={"name": "TPQ Nur"}, headers=H(admin))).json()
+    gtok = await reg_teacher(client, "g1@x.com", code=inst["invite_code"])
+    gid = (await client.get("/teacher/me", headers=H(gtok))).json()["id"]
+    await client.post("/family/transfer", json={"institution_code": inst["invite_code"]}, headers=H(tok))
+    s = (await client.get("/institution/summary", headers=H(admin))).json()
+    assert s["pending_transfers"] == 1 and s["teachers"] == 2 and s["invite_code"] == inst["invite_code"]
+    pend = (await client.get("/institution/transfers", headers=H(admin))).json()
+    assert pend[0]["children"] == 1 and pend[0]["has_teacher"] is False
+    r = await client.post(f"/institution/transfers/{pend[0]['id']}/decide", json={"approve": True, "teacher_id": gid}, headers=H(admin))
+    assert r.status_code == 200
+    assert len((await client.get("/teacher/students", headers=H(gtok))).json()) == 1
+    assert len((await client.get("/institution/families", headers=H(admin))).json()) == 1
+    v = await client.post(f"/institution/teachers/{gid}/verify", json={"approve": False}, headers=H(admin))
+    assert v.json()["status"] == "rejected"
