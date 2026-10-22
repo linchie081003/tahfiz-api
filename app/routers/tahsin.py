@@ -67,7 +67,7 @@ async def tahsin_curriculum_for_point(
     ctx: AuthContext = Depends(get_current_context),
     db: AsyncSession = Depends(get_db),
 ):
-    """Tiga latihan untuk satu Pulau, lengkap dengan audio ayat contoh. Materi masih draf (perlu validasi ustaz)."""
+    """Lima latihan untuk satu Pulau, lengkap dengan audio ayat contoh. Materi masih draf (perlu validasi ustaz)."""
     items = tahsin_curriculum.CURRICULUM.get(point)
     if not items:
         raise HTTPException(404, "Pulau tidak ditemukan")

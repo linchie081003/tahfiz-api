@@ -95,14 +95,14 @@ async def test_badge_awarded_without_seeded_definitions(db_session):
     assert [b.badge_id for b in got] == ["tahsin_lulus"]
 
 
-async def test_tahsin_curriculum_has_three_items_per_point(client):
+async def test_tahsin_curriculum_has_five_items_per_point(client):
     from tests.helpers import H, register
     reg = await register(client)
     h = H(reg["access_token"])
     for p in range(1, 10):
         r = await client.get(f"/tahsin/curriculum/{p}", headers=h)
         assert r.status_code == 200, r.text
-        assert len(r.json()["items"]) == 3 and r.json()["items"][0]["audio_url"]
+        assert len(r.json()["items"]) == 5 and r.json()["items"][0]["audio_url"]
     assert (await client.get("/tahsin/curriculum/10", headers=h)).status_code == 404
 
 
