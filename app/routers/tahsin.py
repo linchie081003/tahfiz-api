@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -6,6 +6,7 @@ from app import models
 from app.database import get_db
 from app.deps import AuthContext, get_current_context, optional_member_id
 from app.models import AgeMode, TahsinStatus
+from app.services import tahsin_curriculum
 from app.services.quran_display import ayah_range_texts
 from app.services.reciters import everyayah_url, reciter_for_learning
 
@@ -56,3 +57,24 @@ async def tahsin_reference(
             else "Dengarkan bacaan qori, tirukan pelafalannya, lalu rekam dan kirim untuk dinilai orang tua."
         ),
     }
+
+
+@router.get("/curriculum/{point}")
+async def tahsin_curriculum_for_point(
+    point: int,
+    reciter_id: str | None = Query(None),
+    member_id=Depends(optional_member_id),
+    ctx: AuthContext = Depends(get_current_context),
+    db: AsyncSession = Depends(get_db),
+):
+    """Tiga latihan untuk satu Pulau, lengkap dengan audio ayat contoh. Materi masih draf (perlu validasi ustaz)."""
+    items = tahsin_curriculum.CURRICULUM.get(point)
+    if not items:
+        raise HTTPException(404, "Pulau tidak ditemukan")
+    member = await db.get(models.Member, member_id) if member_id else None
+    rid = await _resolve_reciter(db, ctx.family_id, reciter_id, member.age_mode if member else AgeMode.adult)
+    out = []
+    for i, it in enumerate(items, start=1):
+        ex = it["example"]
+        out.append({**it, "index": i, "audio_url": everyayah_url(ex["surah_id"], ex["ayah"], rid)})
+    return {"point": point, "items": out, "draft": tahsin_curriculum.DRAFT}
