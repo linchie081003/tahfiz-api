@@ -15,7 +15,7 @@ _I = lambda arabic, title, tip, surah, ayah, art=None, vs=None: {  # noqa: E731
 CURRICULUM: dict[int, list[dict]] = {
     1: [
         _I("صَ", "Huruf ص (shad)", "Pangkal lidah naik ke langit-langit, bibir terbuka. Itu yang membuat suara ص tebal.", 1, 6, "raised", "س"),
-        _I("عَ", "Huruf ع ('ain)", "Suara keluar dari tengah tenggorokan, bukan dari bibir atau mulut depan.", 1, 7, "throat", "ا"),
+        _I("عَ", "Huruf ع ('ain)", "Suara keluar dari tengah tenggorokan, bukan dari bibir atau mulut depan.", 1, 7, "throat", "ء"),
         _I("قَ", "Huruf ق (qaf)", "Pangkal lidah paling belakang menyentuh langit-langit. Suaranya tebal, berbeda dari ك.", 112, 1, "raised", "ك"),
     ],
     2: [
