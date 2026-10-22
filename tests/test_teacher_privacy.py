@@ -118,6 +118,8 @@ async def test_teacher_evaluates_and_parent_cannot(client):
     body = {"status": "passed", "rubric_scores": {"makhraj": 5}, "evaluator_notes": "Bagus, latih huruf ص"}
     assert (await client.post(f"/setor/{sid}/evaluate", json=body, headers=H(tok))).status_code == 403
     assert (await client.post(f"/teacher/submissions/{sid}/evaluate", json=body, headers=H(ttok))).json()["status"] == "passed"
+    assert (await client.post("/family/messages/reply", json={"member_id": cid, "body": "Terima kasih"}, headers=H(tok2))).status_code == 201
+    assert "Terima kasih" in (await client.get("/teacher/inbox", headers=H(ttok))).json()[0]["body"]
     msgs = (await client.get("/family/messages", headers=H(tok2))).json()
     assert msgs["unread"] == 1 and "huruf" in msgs["messages"][0]["body"]
     await client.post("/family/messages/read", headers=H(tok2))
@@ -143,7 +145,13 @@ async def test_second_parent_can_delete_recordings_and_download(client):
     names = zipfile.ZipFile(io.BytesIO(z.content)).namelist()
     assert "data.json" in names and f"rekaman/{sid}.webm" in names
     assert (await client.get("/family/export/download?token=salah")).status_code == 410
-    r = (await client.post("/family/recordings/delete", json={"member_id": cid}, headers=H(tok2))).json()
+    assert (await client.post("/family/recordings/delete", json={"member_id": cid, "pin": "1234"}, headers=H(tok2))).status_code == 409  # belum ada PIN
+    assert (await client.put("/family/pin", json={"pin": "1234"}, headers=H(tok2))).json()["has_pin"] is True
+    assert (await client.put("/family/pin", json={"pin": "9999"}, headers=H(tok2))).status_code == 403  # perlu PIN lama
+    assert (await client.post("/family/recordings/delete", json={"member_id": cid, "pin": "0000"}, headers=H(tok2))).status_code == 403
+    summ = (await client.get(f"/family/privacy-summary?member_id={cid}", headers=H(tok2))).json()
+    assert summ["recordings"] == 1 and summ["retention_days"] == 30
+    r = (await client.post("/family/recordings/delete", json={"member_id": cid, "pin": "1234"}, headers=H(tok2))).json()
     assert r["deleted"] == 1 and "7 hari" in r["message"]
     assert (await client.get(f"/setor/media/{sid}", headers=H(tok2))).status_code == 404
     reqs = (await client.get("/family/recordings/deletions", headers=H(tok))).json()

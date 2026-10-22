@@ -8,11 +8,11 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from jose import JWTError, jwt
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import models, ratelimit
+from app import models, ratelimit, security
 from app.config import settings
 from app.database import get_db
 from app.deps import AuthContext, require_parent, require_teacher
@@ -38,6 +38,17 @@ class ReviewIn(BaseModel):
 
 class DeleteIn(BaseModel):
     member_id: uuid.UUID | None = None
+    pin: str | None = None
+
+
+class PinIn(BaseModel):
+    pin: str = Field(pattern=r"^\d{4}$")
+    current_pin: str | None = None
+
+
+class ReplyIn(BaseModel):
+    member_id: uuid.UUID
+    body: str = Field(min_length=1, max_length=1000)
 
 
 class ExportIn(BaseModel):
@@ -205,8 +216,70 @@ async def access_log(ctx: AuthContext = Depends(require_owner), db: AsyncSession
 
 
 # ---- hapus dan unduh
+@router.get("/pin")
+async def pin_status(ctx: AuthContext = Depends(require_parent), db: AsyncSession = Depends(get_db)):
+    p = await db.get(models.ParentUser, ctx.subject_id)
+    return {"has_pin": bool(p and p.settings_pin_hash)}
+
+
+@router.put("/pin")
+async def set_pin(payload: PinIn, ctx: AuthContext = Depends(require_parent), db: AsyncSession = Depends(get_db)):
+    """PIN orang tua (4 angka) melindungi tindakan penghapusan. Mengganti PIN perlu PIN lama."""
+    p = await db.get(models.ParentUser, ctx.subject_id)
+    if p.settings_pin_hash and not (payload.current_pin and security.verify_secret(payload.current_pin, p.settings_pin_hash)):
+        raise HTTPException(403, "PIN lama salah")
+    p.settings_pin_hash = security.hash_secret(payload.pin)
+    await db.flush()
+    return {"has_pin": True}
+
+
+async def _check_pin(db: AsyncSession, ctx: AuthContext, pin: str | None) -> None:
+    ratelimit.check("pin", str(ctx.subject_id), 8, 600)
+    p = await db.get(models.ParentUser, ctx.subject_id)
+    if not p or not p.settings_pin_hash:
+        raise HTTPException(409, "Buat PIN orang tua dulu")
+    if not pin or not security.verify_secret(pin, p.settings_pin_hash):
+        raise HTTPException(403, "PIN salah")
+
+
+@router.get("/privacy-summary")
+async def privacy_summary(member_id: uuid.UUID, ctx: AuthContext = Depends(require_parent), db: AsyncSession = Depends(get_db)):
+    await _member(db, member_id, ctx.family_id)
+    subs = (await db.execute(select(models.Submission).where(models.Submission.member_id == member_id,
+            models.Submission.recording_deleted_at.is_(None)))).scalars().all()
+    size, oldest = 0, None
+    now = datetime.now(timezone.utc)
+    kept = 0
+    for s in subs:
+        p = storage.local_recording_path(s.family_id, s.id)
+        if p.is_file():
+            kept += 1
+            size += p.stat().st_size
+            created = s.created_at if s.created_at.tzinfo else s.created_at.replace(tzinfo=timezone.utc)
+            oldest = max(oldest or 0, (now - created).days)
+    fam = await db.get(models.Family, ctx.family_id)
+    link = await teaching.active_link(db, member_id)
+    teacher = await db.get(models.Teacher, link.teacher_id) if link else None
+    return {"recordings": kept, "size_mb": round(size / 1_048_576, 1), "oldest_days": oldest or 0,
+            "retention_days": settings.recording_retention_days, "consent": fam.recording_consent_at is not None,
+            "teacher": {"link_id": link.id, "name": teacher.name, "recording_consent": link.recording_consent} if link and teacher else None}
+
+
+@router.post("/messages/reply", status_code=status.HTTP_201_CREATED)
+async def reply_message(payload: ReplyIn, ctx: AuthContext = Depends(require_parent), db: AsyncSession = Depends(get_db)):
+    await _member(db, payload.member_id, ctx.family_id)
+    link = await teaching.active_link(db, payload.member_id)
+    if not link:
+        raise HTTPException(409, "Belum ada guru aktif")
+    db.add(models.TeacherMessage(teacher_id=link.teacher_id, family_id=ctx.family_id, member_id=payload.member_id,
+                                 direction="to_teacher", kind="note", body=payload.body))
+    await db.flush()
+    return {"ok": True}
+
+
 @router.post("/recordings/delete")
 async def delete_recordings(payload: DeleteIn, ctx: AuthContext = Depends(require_parent), db: AsyncSession = Depends(get_db)):
+    await _check_pin(db, ctx, payload.pin)
     if payload.member_id:
         await _member(db, payload.member_id, ctx.family_id)
     req = await teaching.delete_recordings(db, ctx.family_id, ctx.subject_id, payload.member_id)
