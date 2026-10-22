@@ -95,14 +95,15 @@ async def test_badge_awarded_without_seeded_definitions(db_session):
     assert [b.badge_id for b in got] == ["tahsin_lulus"]
 
 
-async def test_tahsin_curriculum_has_five_items_per_point(client):
+async def test_tahsin_curriculum_sizes_and_audio(client):
     from tests.helpers import H, register
     reg = await register(client)
     h = H(reg["access_token"])
     for p in range(1, 10):
         r = await client.get(f"/tahsin/curriculum/{p}", headers=h)
         assert r.status_code == 200, r.text
-        assert len(r.json()["items"]) == 5 and r.json()["items"][0]["audio_url"]
+        assert len(r.json()["items"]) == (28 if p == 1 else 10) and r.json()["items"][0]["audio_url"]
+        assert all(it["audio_urls"] for it in r.json()["items"])
     assert (await client.get("/tahsin/curriculum/10", headers=h)).status_code == 404
 
 
@@ -139,3 +140,12 @@ def test_focus_chars_exist_in_arabic_text():
             assert it.get("focus"), (point, it["title"])
             for ch in it["focus"]:
                 assert ch in it["arabic"], (point, it["title"], hex(ord(ch)))
+
+
+def test_pulau1_covers_all_28_hijaiyah_letters():
+    from app.services.tahsin_curriculum import CURRICULUM
+
+    letters = {it["focus"] for it in CURRICULUM[1]}
+    base = set("ابتثجحخدذرزسشصضطظعغفقكلمنهوي")
+    assert {"أ"} <= letters
+    assert base - {"ا"} <= letters, base - {"ا"} - letters
