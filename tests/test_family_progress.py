@@ -63,3 +63,15 @@ async def test_tahsin_points_gate(client):
     kids = (await client.get("/members", headers=H(tok))).json()
     assert kids[0]["tahsin_status"] == "passed"
     assert (await client.post(url(10), json={"score": 9}, headers=H(tok))).status_code == 404
+
+
+async def test_placement_child_sets_and_reads(client):
+    from tests.helpers import H, add_child, register
+    reg = await register(client)
+    cid = await add_child(client, reg["access_token"])
+    r = await client.post("/auth/child-login", json={"access_code": reg["family_access_code"], "child_id": cid, "pin": ""})
+    h = H(r.json()["access_token"])
+    assert (await client.get("/placement", headers=h)).json() == {"placement": None}
+    assert (await client.put("/placement", json={"level": "basic"}, headers=h)).json() == {"placement": "basic"}
+    assert (await client.get("/placement", headers=h)).json()["placement"] == "basic"
+    assert (await client.put("/placement", json={"level": "zzz"}, headers=h)).status_code == 422

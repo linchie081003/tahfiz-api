@@ -130,3 +130,35 @@ async def tahsin_point_result(
         db, member, point, payload.score, "parent", ctx.subject_id, payload.approve_below_threshold
     )
     return await tahsin_points.overview(db, member.id)
+
+
+PLACEMENTS = ("none", "basic", "fluent")
+
+
+class PlacementIn(BaseModel):
+    level: Literal["none", "basic", "fluent"]
+
+
+async def _own_member_id(ctx: AuthContext) -> uuid.UUID:
+    if not ctx.member_id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Pilih profil anak dulu")
+    return ctx.member_id
+
+
+@router.get("/placement")
+async def read_placement(ctx: AuthContext = Depends(get_current_context), db: AsyncSession = Depends(get_db)):
+    """Tingkat awal bacaan anak yang sedang masuk. Null berarti onboarding belum diisi."""
+    row = await get_member_settings(db, await _own_member_id(ctx))
+    return {"placement": row.placement if row else None}
+
+
+@router.put("/placement")
+async def write_placement(payload: PlacementIn, ctx: AuthContext = Depends(get_current_context), db: AsyncSession = Depends(get_db)):
+    mid = await _own_member_id(ctx)
+    row = await get_member_settings(db, mid)
+    if not row:
+        row = models.MemberSettings(member_id=mid, coverage="juz30", daily_ayahs=1, murajaah_strong_days=14)
+        db.add(row)
+    row.placement = payload.level
+    await db.flush()
+    return {"placement": row.placement}

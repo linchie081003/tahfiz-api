@@ -13,7 +13,7 @@ from app import models, ratelimit, schemas, security
 from app.config import settings
 from app.database import get_db
 from app.deps import require_teacher
-from app.routers.member_progress import DAILY_AYAHS, STRONG_DAYS, MemberSettingsIn, MemberSettingsOut, get_member_settings
+from app.routers.member_progress import DAILY_AYAHS, STRONG_DAYS, MemberSettingsIn, MemberSettingsOut, PlacementIn, get_member_settings
 from app.services import setor_flow, storage, tahsin_points, teaching
 
 router = APIRouter(prefix="/teacher", tags=["teacher"])
@@ -313,6 +313,26 @@ async def set_student_settings(member_id: uuid.UUID, payload: MemberSettingsIn,
     row.set_by = "teacher"
     await db.flush()
     return MemberSettingsOut(coverage=row.coverage, daily_ayahs=row.daily_ayahs, murajaah_strong_days=row.murajaah_strong_days, set_by="teacher")
+
+
+@router.get("/students/{member_id}/placement")
+async def student_placement(member_id: uuid.UUID, t: models.Teacher = Depends(require_teacher), db: AsyncSession = Depends(get_db)):
+    await _student_link(db, t, member_id)
+    row = await get_member_settings(db, member_id)
+    return {"placement": row.placement if row else None}
+
+
+@router.put("/students/{member_id}/placement")
+async def set_student_placement(member_id: uuid.UUID, payload: PlacementIn, t: models.Teacher = Depends(require_teacher), db: AsyncSession = Depends(get_db)):
+    await _student_link(db, t, member_id)
+    row = await get_member_settings(db, member_id)
+    if not row:
+        row = models.MemberSettings(member_id=member_id, coverage="juz30", daily_ayahs=1, murajaah_strong_days=14)
+        db.add(row)
+    row.placement = payload.level
+    row.set_by = "teacher"
+    await db.flush()
+    return {"placement": row.placement}
 
 
 @router.post("/students/{member_id}/messages", status_code=status.HTTP_201_CREATED)

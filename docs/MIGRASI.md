@@ -37,3 +37,10 @@ Atau jalankan `alembic upgrade head`.
 ## Pekerja retensi
 Hapus rekaman lebih dari 30 hari dan selesaikan permintaan hapus 7 hari. Jalankan satu proses terjadwal:
 `python -m app.workers.retention_worker` (di Render: Background Worker).
+
+## Revisi 0004 (tingkat awal bacaan / onboarding)
+Satu kolom baru. Lewat SQL Editor Supabase, sebelum deploy:
+```sql
+ALTER TABLE member_settings ADD COLUMN IF NOT EXISTS placement VARCHAR(16);
+```
+Atau `alembic upgrade head`.
