@@ -61,7 +61,7 @@ async def home(
     member_target = ms.daily_ayahs if ms else 1
     due = await murojaah.due_items(db, member_id, cap)
     active = await progress.get_active_surah(db, member_id)
-    tahsin_ok = member.tahsin_status == models.TahsinStatus.passed
+    tahsin_ok = await progress.hafalan_unlocked(db, member)
 
     if ctx.role == "parent":
         menu_locks = _parent_menu_locks()

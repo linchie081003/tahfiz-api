@@ -19,6 +19,16 @@ async def can_access_ziyadah(member: Member) -> bool:
     return member.tahsin_status == TahsinStatus.passed
 
 
+async def hafalan_unlocked(db: AsyncSession, member: Member) -> bool:
+    """Hafalan dan murajaah terbuka jika 3 Pulau wajib tahsin lulus, atau jika diatur paralel (orang tua atau guru)."""
+    if member.tahsin_status == TahsinStatus.passed:
+        return True
+    from app.models import MemberSettings
+
+    ms = (await db.execute(select(MemberSettings).where(MemberSettings.member_id == member.id))).scalar_one_or_none()
+    return bool(ms and ms.parallel_hafalan)
+
+
 async def get_active_surah(db: AsyncSession, member_id: uuid.UUID) -> MemberSurahProgress | None:
     q = (
         select(MemberSurahProgress)

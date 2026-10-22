@@ -67,7 +67,7 @@ async def parent_dashboard(ctx: AuthContext = Depends(require_parent), db: Async
         if active:
             sr = await db.get(models.Surah, active.surah_id)
             hafalan_line = f"{sr.name_id if sr else 'Surat'}, ayat {active.current_ayah}"
-        due = await murojaah.due_items(db, m.id, 50) if m.tahsin_status == models.TahsinStatus.passed else []
+        due = await murojaah.due_items(db, m.id, 50) if await progress.hafalan_unlocked(db, m) else []
         due_name = ""
         if due:
             ds = await db.get(models.Surah, due[0].surah_id)
