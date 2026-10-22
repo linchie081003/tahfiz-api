@@ -79,6 +79,23 @@ CURRICULUM: dict[int, list[dict]] = {
 }
 
 
+
+# Huruf/tanda yang menjadi poin penilaian tiap latihan (diberi warna di layar anak).
+# Tiap karakter harus ada pada teks `arabic` latihan itu (dijaga oleh tes). DRAF: perlu validasi ustaz.
+FOCUS: dict[tuple[int, int], str] = {
+    (1, 1): "ص", (1, 2): "ع", (1, 3): "ق", (1, 4): "خ", (1, 5): "غ",
+    (2, 1): "خصضغطقظ", (2, 2): "قطبجد", (2, 3): "حه", (2, 4): "سش", (2, 5): "ظ",
+    (3, 1): "\u064e\u0650\u064f", (3, 2): "اي", (3, 3): "\u064c", (3, 4): "و", (3, 5): "ي",
+    (4, 1): "ثسص", (4, 2): "ذض", (4, 3): "تط", (4, 4): "كق", (4, 5): "حخ",
+    (5, 1): "نع", (5, 2): "ني", (5, 3): "نت", (5, 4): "نب\u06e2", (5, 5): "\u064bأ",
+    (6, 1): "مب", (6, 2): "مو", (6, 3): "م", (6, 4): "مم", (6, 5): "ن",
+    (7, 1): "اء", (7, 2): "اأ", (7, 3): "اق", (7, 4): "\u064bا", (7, 5): "ه\u06e5",
+    (8, 1): "ل", (8, 2): "ر", (8, 3): "ر", (8, 4): "ل", (8, 5): "ر",
+    (9, 1): "\u064c", (9, 2): "ة", (9, 3): "ل", (9, 4): "ق", (9, 5): "\u0671",
+}
+for (_p, _i), _f in FOCUS.items():
+    CURRICULUM[_p][_i - 1]["focus"] = _f
+
 # Kata contoh per latihan: (surat, ayat, nomor kata). Audio per kata dari Quran.com (wbw), sehingga
 # yang terdengar adalah kata pendek yang memuat huruf/hukum tersebut, bukan seluruh ayat.
 # Urutan kata mengikuti urutan huruf yang tampil di layar. DRAF: perlu divalidasi ustaz.
