@@ -459,3 +459,15 @@ class TransferRequest(Base):
     status: Mapped[str] = mapped_column(String(16), default="pending")  # pending | approved | rejected
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class TilawahState(Base):
+    """Kemajuan Tilawah (ayat terakhir, penanda, target, hari baca) agar ikut pindah perangkat.
+
+    owner_id = id anak (anak / mode anak) atau id orang tua (Tilawah orang tua sendiri)."""
+
+    __tablename__ = "tilawah_state"
+
+    owner_id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)
+    data: Mapped[dict] = mapped_column(JSON, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
