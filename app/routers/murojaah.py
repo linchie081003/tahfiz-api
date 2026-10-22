@@ -37,6 +37,7 @@ async def complete(item_id: uuid.UUID, payload: schemas.MurojaahCompleteIn, memb
     item = await db.get(models.MurojaahItem, item_id)
     if not item or item.member_id != member_id:
         raise HTTPException(404, "Item tidak ditemukan")
-    await murojaah.complete_item(db, item, payload.rating)
+    ms = (await db.execute(select(models.MemberSettings).where(models.MemberSettings.member_id == member_id))).scalar_one_or_none()
+    await murojaah.complete_item(db, item, payload.rating, ms.murajaah_strong_days if ms else 14)
     await gamification.add_xp(db, member_id, "murojaah_done")
     return {"ok": True}

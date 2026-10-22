@@ -57,6 +57,8 @@ async def home(
     stats = await gamification.ensure_member_stats(db, member_id)
     level, rank, next_xp = level_from_xp(stats.xp)
     cap = settings.daily_murojaah_cap if settings else 5
+    ms = (await db.execute(select(models.MemberSettings).where(models.MemberSettings.member_id == member_id))).scalar_one_or_none()
+    member_target = ms.daily_ayahs if ms else 1
     due = await murojaah.due_items(db, member_id, cap)
     active = await progress.get_active_surah(db, member_id)
     tahsin_ok = member.tahsin_status == models.TahsinStatus.passed
@@ -80,7 +82,7 @@ async def home(
             mission_xp = 15
         elif active:
             surah = await db.get(models.Surah, active.surah_id)
-            target = settings.daily_ziyadah_ayahs if settings else 3
+            target = member_target
             mission_detail = f"Ziyadah {member.name}: {target} ayat {surah.name_id if surah else ''}"
             mission_action = "ziyadah"
             mission_xp = 30
@@ -103,7 +105,7 @@ async def home(
         mission_xp = 15
     elif active:
         surah = await db.get(models.Surah, active.surah_id)
-        target = settings.daily_ziyadah_ayahs if settings else 3
+        target = member_target
         mission_detail = f"Setor {target} ayat {surah.name_id if surah else ''}"
         mission_action = "ziyadah"
         mission_xp = 30

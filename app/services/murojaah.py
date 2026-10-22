@@ -33,15 +33,16 @@ async def due_items(db: AsyncSession, member_id: uuid.UUID, cap: int) -> list[Mu
     return list((await db.execute(q)).scalars().all())
 
 
-async def complete_item(db: AsyncSession, item: MurojaahItem, rating: str):
+async def complete_item(db: AsyncSession, item: MurojaahItem, rating: str, strong_days: int = 14):
+    """Kuat: 7 atau 14 hari (atur per anak). Cukup: 7 hari. Lemah: besok."""
     if rating == "lupa":
         item.weak_score += 2
         item.interval_days = 1
     elif rating == "ragu":
         item.weak_score += 1
-        item.interval_days = max(1, item.interval_days)
+        item.interval_days = 7
     else:
-        item.interval_days = min(30, int(item.interval_days * item.ease_factor))
+        item.interval_days = strong_days
         item.weak_score = max(0, item.weak_score - 1)
     item.completed = True
     db.add(

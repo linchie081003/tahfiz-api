@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     use_local_storage: bool = True
     local_recordings_dir: str = "data/recordings"
     api_public_base: str = "http://localhost:8010"
-    recording_retention_days: int = 365
+    recording_retention_days: int = 30
     app_name: str = "Hafiz API"
     environment: str = "development"
     vapid_public_key: str = ""

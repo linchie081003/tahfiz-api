@@ -70,6 +70,8 @@ class ParentUser(Base):
     hashed_password: Mapped[str] = mapped_column(String(255))
     name: Mapped[str] = mapped_column(String(120))
     settings_pin_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # "owner" = pendaftar pertama keluarga; "parent" = orang tua kedua (diundang).
+    family_role: Mapped[str] = mapped_column(String(16), default="owner", server_default="owner")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     family: Mapped["Family"] = relationship(back_populates="parents")
@@ -295,3 +297,49 @@ class ReminderLog(Base):
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     member_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("members.id"), index=True)
     day: Mapped[date] = mapped_column(Date)
+
+
+class FamilyInvite(Base):
+    """Undangan orang tua kedua. Hanya pemilik keluarga yang boleh membuatnya."""
+
+    __tablename__ = "family_invites"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    family_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("families.id"), index=True)
+    code: Mapped[str] = mapped_column(String(24), unique=True, index=True)
+    created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("parent_users.id"))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    used_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("parent_users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class MemberSettings(Base):
+    """Pengaturan per anak (menggantikan angka tunggal per keluarga)."""
+
+    __tablename__ = "member_settings"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    member_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("members.id"), unique=True)
+    coverage: Mapped[str] = mapped_column(String(16), default="juz30")  # juz30 | all
+    daily_ayahs: Mapped[int] = mapped_column(Integer, default=1)  # 1, 2, 3, 5
+    murajaah_strong_days: Mapped[int] = mapped_column(Integer, default=14)  # 7 | 14
+    set_by: Mapped[str] = mapped_column(String(16), default="parent")  # parent | teacher
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class TahsinPointProgress(Base):
+    """Kemajuan tahsin per Pulau (poin 1-9)."""
+
+    __tablename__ = "tahsin_point_progress"
+    __table_args__ = (UniqueConstraint("member_id", "point", name="uq_tahsin_point_member"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    member_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("members.id"), index=True)
+    point: Mapped[int] = mapped_column(Integer)
+    best_score: Mapped[float] = mapped_column(Float, default=0.0)  # 0-10
+    passed: Mapped[bool] = mapped_column(Boolean, default=False)
+    approved_below_threshold: Mapped[bool] = mapped_column(Boolean, default=False)
+    decided_by: Mapped[str | None] = mapped_column(String(16), nullable=True)  # parent | teacher
+    decider_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    passed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
