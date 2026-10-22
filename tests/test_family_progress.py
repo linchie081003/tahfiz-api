@@ -149,3 +149,21 @@ def test_pulau1_covers_all_28_hijaiyah_letters():
     base = set("ابتثجحخدذرزسشصضطظعغفقكلمنهوي")
     assert {"أ"} <= letters
     assert base - {"ا"} <= letters, base - {"ا"} - letters
+
+
+async def test_mandatory_pulau_must_pass_in_order(client):
+    tok = (await register(client))["access_token"]
+    cid = await add_child(client, tok)
+    url = lambda p: f"/tahsin/points/{p}/result?member_id={cid}"
+    assert (await client.post(url(3), json={"score": 10}, headers=H(tok))).status_code == 409
+    assert (await client.post(url(2), json={"score": 10}, headers=H(tok))).status_code == 409
+    assert (await client.post(url(1), json={"score": 9}, headers=H(tok))).status_code == 200
+    assert (await client.post(url(3), json={"score": 10}, headers=H(tok))).status_code == 409
+    assert (await client.post(url(2), json={"score": 9}, headers=H(tok))).status_code == 200
+    # Pulau pilihan boleh kapan saja
+    assert (await client.post(url(6), json={"score": 9}, headers=H(tok))).status_code == 200
+    dash = (await client.get("/parent/dashboard", headers=H(tok))).json()
+    c = dash["children"][0]
+    assert c["mandatory_passed"] == 2 and c["hafalan_open"] is False
+    await client.put(f"/members/{cid}/settings", json={"parallel_hafalan": True}, headers=H(tok))
+    assert (await client.get("/parent/dashboard", headers=H(tok))).json()["children"][0]["hafalan_open"] is True
