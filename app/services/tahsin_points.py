@@ -2,6 +2,7 @@
 import uuid
 from datetime import datetime, timezone
 
+from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -68,6 +69,8 @@ async def record_result(
 ) -> models.TahsinPointProgress:
     """Skor dari pra-cek/penilai; kelulusan diputuskan manusia (guru atau orang tua)."""
     rows = await _rows(db, member.id)
+    if point in MANDATORY and point > 1 and not (rows.get(point - 1) and rows[point - 1].passed):
+        raise HTTPException(409, f"Pulau {point - 1} harus lulus dulu sebelum Pulau {point}")
     row = rows.get(point)
     if row is None:
         row = models.TahsinPointProgress(member_id=member.id, point=point, best_score=0.0, passed=False)

@@ -96,6 +96,8 @@ class ParentChildSummaryOut(BaseModel):
     passed_surahs: int
     pending_setor: int
     tahsin_line: str = ""
+    hafalan_open: bool = True
+    mandatory_passed: int = 0
     hafalan_line: str = ""
     murajaah_due: int = 0
     murajaah_surah: str = ""
