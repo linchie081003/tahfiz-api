@@ -59,6 +59,9 @@ async def create_submission(
     if not member or member.family_id != ctx.family_id:
         raise HTTPException(403, "Akses ditolak")
     if context == models.SubmissionContext.ziyadah:
+        off = await daily_sessions.disabled_reason(db, member_id, "sesi2")
+        if off:
+            raise HTTPException(409, f"Hafalan baru dimatikan orang tua hari ini: {off}")
         await setor_flow.assert_ziyadah_setor_allowed(db, member, surah_id, ayah_start, ayah_end)
     if context == models.SubmissionContext.tahsin and tahsin_point in (2, 3):
         prev = (await tahsin_points._rows(db, member_id)).get(tahsin_point - 1)

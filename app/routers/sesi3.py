@@ -33,6 +33,9 @@ class ResolveIn(BaseModel):
 
 @router.get("/sesi3")
 async def sesi3_today(member_id=Depends(require_member_id), db: AsyncSession = Depends(get_db)):
+    off = await daily_sessions.disabled_reason(db, member_id, "sesi3")
+    if off:
+        return {"active": False, "sample": [], "offer": None, "disabled_reason": off}
     return await sesi3.build(db, member_id)
 
 

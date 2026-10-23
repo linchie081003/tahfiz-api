@@ -207,3 +207,23 @@ async def test_api_sesi_harian_orang_tua(client):
     tok = (await client.post("/auth/child-login", json={"access_code": reg["family_access_code"], "child_id": cid, "pin": ""})).json()["access_token"]
     assert (await client.post(f"/sesi-harian/anak/{cid}/sesi1/aktif", json={}, headers=H(tok))).status_code == 403  # hanya orang tua
     assert (await client.get("/sesi-harian/hari-ini", headers=H(tok))).status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_sesi_dimatikan_menutup_layar_anak(client):
+    import io
+    from tests.helpers import H, add_child, register
+    reg = await register(client)
+    cid = await add_child(client, reg["access_token"])
+    ptok = reg["access_token"]
+    tok = (await client.post("/auth/child-login", json={"access_code": reg["family_access_code"], "child_id": cid, "pin": ""})).json()["access_token"]
+    for kind in ("sesi1", "sesi3"):
+        assert (await client.post(f"/sesi-harian/anak/{cid}/{kind}/nonaktif", json={"reason": "Libur"}, headers=H(ptok))).status_code == 200
+    m = (await client.get("/murojaah/sesi", headers=H(tok))).json()
+    assert m["active"] is False and m["disabled_reason"] == "Libur"
+    s3 = (await client.get("/sesi3", headers=H(tok))).json()
+    assert s3["active"] is False and s3["disabled_reason"] == "Libur"
+    assert (await client.post(f"/sesi-harian/anak/{cid}/sesi2/nonaktif", json={"reason": "Sakit"}, headers=H(ptok))).status_code == 200
+    r = await client.post("/setor", headers=H(tok), data={"context": "ziyadah", "reference_text": "x", "surah_id": "114", "ayah_start": "1", "ayah_end": "1"},
+                          files={"file": ("r.webm", io.BytesIO(b"x" * 10), "audio/webm")})
+    assert r.status_code == 409 and "Sakit" in r.text

@@ -45,6 +45,9 @@ async def sesi(
     """Sesi 1: murajaah hafalan lama. Aktif bila ada minimal satu ayat yang sudah lulus."""
     if member_id is None:
         return schemas.MurojaahSessionOut(active=False, max_ayah=murojaah.SESI1_MAX_AYAH, total_ayah=0, blocks=[])
+    off = await daily_sessions.disabled_reason(db, member_id, "sesi1")
+    if off:
+        return schemas.MurojaahSessionOut(active=False, max_ayah=murojaah.SESI1_MAX_AYAH, total_ayah=0, blocks=[], disabled_reason=off)
     has_range = (
         await db.execute(select(models.MurojaahItem.id).where(models.MurojaahItem.member_id == member_id).limit(1))
     ).first() is not None

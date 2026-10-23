@@ -377,6 +377,7 @@ class MurojaahSessionOut(BaseModel):
     max_ayah: int
     total_ayah: int
     blocks: list[MurojaahBlockOut]
+    disabled_reason: str | None = None
 
 
 class MurojaahCompleteIn(BaseModel):

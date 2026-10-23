@@ -62,6 +62,12 @@ async def _row(db: AsyncSession, member_id: uuid.UUID, day: date, kind: str) -> 
     ).scalar_one_or_none()
 
 
+async def disabled_reason(db: AsyncSession, member_id: uuid.UUID, kind: str, day: date | None = None) -> str | None:
+    """Alasan bila orang tua mematikan sesi ini hari ini (tanpa membuat baris baru); selain itu None."""
+    row = await _row(db, member_id, day or today(), kind)
+    return (row.reason or "Dimatikan orang tua") if row and row.status == DISABLED else None
+
+
 async def ensure_day(db: AsyncSession, member: models.Member, day: date | None = None) -> list[models.DailySession]:
     """Pastikan tiga baris sesi untuk hari itu ada. Sesi yang sudah available/selesai/terlewat/dimatikan tidak berubah;
     not_applicable bisa naik menjadi available bila syaratnya terpenuhi di hari yang sama."""
