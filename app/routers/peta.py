@@ -69,8 +69,9 @@ async def peta_juz30(
                 models.SurahProgressStatus.needs_retry,
             ):
                 status = "active"
-                active_id = s.id
-                active_name = s.name_id
+                if active_id is None:
+                    active_id = s.id
+                    active_name = s.name_id
         elif not pr:
             status = "locked"
         elif pr.status == models.SurahProgressStatus.passed:
@@ -78,8 +79,9 @@ async def peta_juz30(
             passed += 1
         elif pr.status in (models.SurahProgressStatus.in_progress, models.SurahProgressStatus.needs_retry):
             status = "active"
-            active_id = s.id
-            active_name = s.name_id
+            if active_id is None:
+                active_id = s.id
+                active_name = s.name_id
         else:
             status = "locked"
         nodes.append(
