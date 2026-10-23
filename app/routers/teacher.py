@@ -14,7 +14,7 @@ from app.config import settings
 from app.database import get_db
 from app.deps import require_teacher
 from app.routers.member_progress import DAILY_AYAHS, STRONG_DAYS, MemberSettingsIn, MemberSettingsOut, PlacementIn, get_member_settings
-from app.services import setor_flow, storage, tahsin_points, teaching
+from app.services import corrections, setor_flow, storage, tahsin_points, teaching
 
 router = APIRouter(prefix="/teacher", tags=["teacher"])
 NIL = uuid.UUID(int=0)
@@ -269,6 +269,38 @@ async def evaluate(submission_id: uuid.UUID, payload: schemas.EvaluateSubmission
                                      direction="to_parent", kind="note", body=payload.evaluator_notes))
     await db.flush()
     return {"status": sub.status.value}
+
+
+@router.get("/submissions/{submission_id}/riwayat-penilaian")
+async def evaluation_history(submission_id: uuid.UUID, t: models.Teacher = Depends(require_teacher), db: AsyncSession = Depends(get_db)):
+    sub = await db.get(models.Submission, submission_id)
+    if not sub:
+        raise HTTPException(404, "Setoran tidak ditemukan")
+    await _student_link(db, t, sub.member_id)
+    evals = await corrections.history(db, sub.id)
+    active = corrections.active_of(evals)
+    return [
+        {"id": e.id, "result": e.result, "evaluator_role": e.evaluator_role, "notes": e.notes, "created_at": e.created_at,
+         "corrects_id": e.corrects_id, "correction_reason": e.correction_reason, "active": bool(active and e.id == active.id)}
+        for e in evals
+    ]
+
+
+@router.post("/submissions/{submission_id}/koreksi")
+async def correct_evaluation(submission_id: uuid.UUID, payload: schemas.CorrectionIn, t: models.Teacher = Depends(require_teacher), db: AsyncSession = Depends(get_db)):
+    """Koreksi oleh guru yang terhubung. Menambah riwayat; penilaian lama tidak ditimpa."""
+    sub = (await db.execute(select(models.Submission).where(models.Submission.id == submission_id).with_for_update())).scalar_one_or_none()
+    if not sub:
+        raise HTTPException(404, "Setoran tidak ditemukan")
+    await _student_link(db, t, sub.member_id)
+    if await teaching.takeover_for(db, sub.id):
+        raise HTTPException(409, "Setoran ini diambil alih orang tua")
+    member = await db.get(models.Member, sub.member_id)
+    ev = await corrections.correct(
+        db, sub, member, evaluator_id=t.id, evaluator_role="teacher", status=payload.status,
+        notes=payload.evaluator_notes, rubric_scores=payload.rubric_scores, reason=payload.reason,
+    )
+    return {"id": ev.id, "status": sub.status.value}
 
 
 @router.post("/students/{member_id}/points/{point}/result")

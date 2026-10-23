@@ -2,7 +2,7 @@ import enum
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import JSON, Boolean, Date, DateTime, Enum, Float, ForeignKey, Integer, String, Text, UniqueConstraint, Uuid, func
+from sqlalchemy import JSON, Boolean, Date, DateTime, Enum, Float, ForeignKey, Integer, String, Text, UniqueConstraint, Uuid, func, true
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -114,6 +114,8 @@ class FamilySettings(Base):
     playback_speed: Mapped[float] = mapped_column(Float, default=1.0)
     arabic_font_size: Mapped[str] = mapped_column(String(16), default="large")
     show_tajweed_colors: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Saklar kewenangan: apakah orang tua boleh menilai. Bawaan aktif agar keluarga lama tidak berubah perilaku.
+    parent_can_evaluate: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())
 
     family: Mapped["Family"] = relationship(back_populates="settings")
 
@@ -512,6 +514,7 @@ class Evaluation(Base):
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     rubric_scores: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     corrects_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("evaluations.id"), nullable=True)
+    correction_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     source: Mapped[str] = mapped_column(String(16), default="live")  # live | migration
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

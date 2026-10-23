@@ -146,6 +146,7 @@ class FamilySettingsOut(BaseModel):
     playback_speed: float
     arabic_font_size: str
     show_tajweed_colors: bool
+    parent_can_evaluate: bool = True
 
     model_config = {"from_attributes": True}
 
@@ -161,6 +162,7 @@ class FamilySettingsUpdateIn(BaseModel):
     playback_speed: float | None = None
     arabic_font_size: str | None = None
     show_tajweed_colors: bool | None = None
+    parent_can_evaluate: bool | None = None
 
 
 class ReciterOut(BaseModel):
@@ -209,6 +211,13 @@ class SubmissionCreateOut(BaseModel):
     id: uuid.UUID
     status: SubmissionStatus
     ai_status: str
+
+
+class CorrectionIn(BaseModel):
+    status: SubmissionStatus
+    rubric_scores: dict[str, int] | None = None
+    evaluator_notes: str | None = None
+    reason: str = Field(min_length=1, max_length=500)
 
 
 class EvaluateSubmissionIn(BaseModel):
