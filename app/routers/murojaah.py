@@ -8,7 +8,7 @@ from app.services.surah_translit import surah_name
 from app import models, schemas
 from app.database import get_db
 from app.deps import AuthContext, get_current_context, optional_member_id, require_member_id
-from app.services import gamification, murojaah
+from app.services import daily_sessions, gamification, murojaah
 
 router = APIRouter(prefix="/murojaah", tags=["murojaah"])
 
@@ -45,6 +45,9 @@ async def sesi(
     """Sesi 1: murajaah hafalan lama. Aktif bila ada minimal satu ayat yang sudah lulus."""
     if member_id is None:
         return schemas.MurojaahSessionOut(active=False, max_ayah=murojaah.SESI1_MAX_AYAH, total_ayah=0, blocks=[])
+    off = await daily_sessions.disabled_reason(db, member_id, "sesi1")
+    if off:
+        return schemas.MurojaahSessionOut(active=False, max_ayah=murojaah.SESI1_MAX_AYAH, total_ayah=0, blocks=[], disabled_reason=off)
     has_range = (
         await db.execute(select(models.MurojaahItem.id).where(models.MurojaahItem.member_id == member_id).limit(1))
     ).first() is not None
@@ -78,5 +81,8 @@ async def complete(item_id: uuid.UUID, payload: schemas.MurojaahCompleteIn, memb
         raise HTTPException(404, "Item tidak ditemukan")
     ms = (await db.execute(select(models.MemberSettings).where(models.MemberSettings.member_id == member_id))).scalar_one_or_none()
     await murojaah.complete_item(db, item, payload.rating, ms.murajaah_strong_days if ms else 14)
+    member = await db.get(models.Member, member_id)
+    size = (item.ayah_end or 1) - (item.ayah_start or 1) + 1
+    await daily_sessions.mark_completed(db, member, "sesi1", activity_type="murojaah_item", activity_id=item.id, ayah=size)
     await gamification.add_xp(db, member_id, "murojaah_done")
     return {"ok": True}

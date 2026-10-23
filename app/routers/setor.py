@@ -12,7 +12,7 @@ from app import models, schemas
 from app.config import settings
 from app.database import get_db
 from app.deps import AuthContext, get_current_context, require_member_id, require_parent
-from app.services import corrections, escalation, setor_flow, storage, tahsin_points, teaching
+from app.services import corrections, daily_sessions, escalation, hafalan_ranges, setor_flow, storage, tahsin_points, teaching
 from app.services import stt
 from app.services.ai_analysis import analyze_recording, unavailable
 from app.services.quran_display import ayah_range_texts
@@ -58,8 +58,14 @@ async def create_submission(
     member = await db.get(models.Member, member_id)
     if not member or member.family_id != ctx.family_id:
         raise HTTPException(403, "Akses ditolak")
+    replaced: list[models.Submission] = []
     if context == models.SubmissionContext.ziyadah:
+        await setor_flow.lock_member(db, member_id)
+        off = await daily_sessions.disabled_reason(db, member_id, "sesi2")
+        if off:
+            raise HTTPException(409, f"Hafalan baru dimatikan orang tua hari ini: {off}")
         await setor_flow.assert_ziyadah_setor_allowed(db, member, surah_id, ayah_start, ayah_end)
+        replaced = await setor_flow.supersede_pending_ziyadah(db, member_id, surah_id, ayah_start, ayah_end if ayah_end is not None else ayah_start)
     if context == models.SubmissionContext.tahsin and tahsin_point in (2, 3):
         prev = (await tahsin_points._rows(db, member_id)).get(tahsin_point - 1)
         if not (prev and prev.passed):
@@ -80,6 +86,8 @@ async def create_submission(
     )
     db.add(sub)
     await db.flush()
+    for o in replaced:
+        o.superseded_by_id = sub.id
     fam = await db.get(models.Family, ctx.family_id)
     if fam is not None and fam.recording_consent_at is None:
         # Tanpa persetujuan, anak tetap belajar tetapi rekaman tidak disimpan.
@@ -91,6 +99,8 @@ async def create_submission(
         sub.recording_key = key
     if context == models.SubmissionContext.tahsin and member.tahsin_status != models.TahsinStatus.passed:
         member.tahsin_status = models.TahsinStatus.pending_eval
+    if context == models.SubmissionContext.ziyadah:
+        await daily_sessions.mark_completed(db, member, "sesi2", activity_type="submission", activity_id=sub.id)
     await _process_ai_inline(db, sub, data, file.content_type or "audio/webm")
     return schemas.SubmissionCreateOut(id=sub.id, status=sub.status, ai_status=sub.ai_status)
 
@@ -127,7 +137,8 @@ async def _process_ai_inline(db: AsyncSession, sub: models.Submission, audio: by
     )
     sub.ai_insights = insights
     sub.ai_status = "completed"
-    sub.status = models.SubmissionStatus.pending_eval
+    if sub.status == models.SubmissionStatus.pending_ai:  # jangan menghidupkan kembali setoran yang sudah digantikan
+        sub.status = models.SubmissionStatus.pending_eval
 
 
 @router.post("/{submission_id}/reprocess-precheck", response_model=schemas.SubmissionOut)
@@ -187,6 +198,9 @@ async def evaluator_queue(ctx: AuthContext = Depends(require_parent), db: AsyncS
                 id=s.id,
                 context=s.context,
                 tahsin_point=s.tahsin_point,
+                ayah_start=s.ayah_start,
+                ayah_end=s.ayah_end,
+                ranges=hafalan_ranges.range_status(s, await corrections.history(db, s.id)) if s.context == models.SubmissionContext.ziyadah else None,
                 surah_id=s.surah_id,
                 reference_text=s.reference_text,
                 reference_text_tajweed=ref_tajweed,
@@ -274,6 +288,8 @@ async def evaluate_submission(
     if not member:
         raise HTTPException(404, "Profil tidak ditemukan")
 
+    if sub.status == models.SubmissionStatus.superseded:
+        raise HTTPException(409, "Setoran ini sudah digantikan setoran yang lebih baru")
     if sub.status != models.SubmissionStatus.pending_eval:
         return _submission_out(sub, member)
     if not await corrections.parent_may_evaluate(db, sub.family_id):
@@ -311,10 +327,11 @@ async def nudge_teacher(submission_id: uuid.UUID, ctx: AuthContext = Depends(req
     return {"ok": True, "sent": sent}
 
 
-def _eval_out(e: models.Evaluation, active_id: uuid.UUID | None) -> dict:
+def _eval_out(e: models.Evaluation, active_ids: set[uuid.UUID]) -> dict:
     return {
         "id": e.id, "result": e.result, "evaluator_role": e.evaluator_role, "notes": e.notes, "created_at": e.created_at,
-        "corrects_id": e.corrects_id, "correction_reason": e.correction_reason, "active": e.id == active_id, "source": e.source,
+        "corrects_id": e.corrects_id, "correction_reason": e.correction_reason, "active": e.id in active_ids, "source": e.source,
+        "ayah_start": e.ayah_start, "ayah_end": e.ayah_end,
     }
 
 
@@ -324,8 +341,17 @@ async def evaluation_history(submission_id: uuid.UUID, ctx: AuthContext = Depend
     if not sub or sub.family_id != ctx.family_id:
         raise HTTPException(404, "Setoran tidak ditemukan")
     evals = await corrections.history(db, sub.id)
-    active = corrections.active_of(evals)
-    return [_eval_out(e, active.id if active else None) for e in evals]
+    active = corrections.active_ids(evals)
+    return [_eval_out(e, active) for e in evals]
+
+
+@router.get("/{submission_id}/rentang")
+async def submission_ranges(submission_id: uuid.UUID, ctx: AuthContext = Depends(get_current_context), db: AsyncSession = Depends(get_db)):
+    """Status per rentang ayat pada satu setoran: bagian yang sudah dinilai dan sisa yang menunggu."""
+    sub = await db.get(models.Submission, submission_id)
+    if not sub or sub.family_id != ctx.family_id or (ctx.role == "child" and sub.member_id != ctx.member_id):
+        raise HTTPException(404, "Setoran tidak ditemukan")
+    return {"status": sub.status.value, "ranges": hafalan_ranges.range_status(sub, await corrections.history(db, sub.id))}
 
 
 @router.post("/{submission_id}/koreksi")
@@ -344,5 +370,6 @@ async def correct_evaluation(
     ev = await corrections.correct(
         db, sub, member, evaluator_id=ctx.subject_id, evaluator_role="parent", status=payload.status,
         notes=payload.evaluator_notes, rubric_scores=payload.rubric_scores, reason=payload.reason,
+        ayah_start=payload.ayah_start, ayah_end=payload.ayah_end,
     )
     return {"id": ev.id, "status": sub.status.value}

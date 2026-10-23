@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import models
 from app.database import get_db
 from app.deps import AuthContext, get_current_context, require_member_id
-from app.services import sesi3, tanda, teaching
+from app.services import daily_sessions, sesi3, tanda, teaching
 from app.services.surah_translit import surah_name
 
 router = APIRouter(tags=["sesi3"])
@@ -33,6 +33,9 @@ class ResolveIn(BaseModel):
 
 @router.get("/sesi3")
 async def sesi3_today(member_id=Depends(require_member_id), db: AsyncSession = Depends(get_db)):
+    off = await daily_sessions.disabled_reason(db, member_id, "sesi3")
+    if off:
+        return {"active": False, "sample": [], "offer": None, "disabled_reason": off}
     return await sesi3.build(db, member_id)
 
 
@@ -40,6 +43,7 @@ async def sesi3_today(member_id=Depends(require_member_id), db: AsyncSession = D
 async def ask_check(payload: AskIn, member_id=Depends(require_member_id), db: AsyncSession = Depends(get_db)):
     member = await db.get(models.Member, member_id)
     req = await sesi3.create_request(db, member, payload.submission_id, "child_mark", ayah_number=payload.ayah_number, created_by=member_id)
+    await daily_sessions.mark_completed(db, member, "sesi3", activity_type="sesi3_request", activity_id=req.id)
     return {"id": req.id, "status": req.status}
 
 

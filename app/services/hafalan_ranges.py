@@ -22,6 +22,8 @@ async def record_evaluation(
     notes: str | None,
     rubric_scores: dict | None,
     source: str = "live",
+    ayah_start: int | None = None,
+    ayah_end: int | None = None,
 ) -> models.Evaluation:
     ev = models.Evaluation(
         submission_id=sub.id,
@@ -32,6 +34,8 @@ async def record_evaluation(
         notes=notes,
         rubric_scores=rubric_scores,
         source=source,
+        ayah_start=ayah_start,
+        ayah_end=ayah_end,
     )
     db.add(ev)
     await db.flush()
@@ -39,27 +43,92 @@ async def record_evaluation(
 
 
 async def record_passed_range(
-    db: AsyncSession, sub: models.Submission, *, source: str = "evaluation"
+    db: AsyncSession, sub: models.Submission, *, source: str = "evaluation",
+    ayah_start: int | None = None, ayah_end: int | None = None,
 ) -> models.MemorizedRange | None:
-    """Catat rentang lulus dari setoran ziyadah. Idempoten per setoran."""
+    """Catat rentang lulus dari setoran ziyadah. Idempoten per setoran dan rentang.
+
+    Tanpa ayah_start/ayah_end dipakai seluruh rentang setoran; dengan keduanya hanya bagian yang lulus.
+    """
     if sub.surah_id is None or sub.ayah_start is None:
         return None
+    a = ayah_start if ayah_start is not None else sub.ayah_start
+    b = ayah_end if ayah_end is not None else (sub.ayah_end if sub.ayah_end is not None else sub.ayah_start)
     existing = (
-        await db.execute(select(models.MemorizedRange).where(models.MemorizedRange.submission_id == sub.id))
-    ).scalar_one_or_none()
+        await db.execute(
+            select(models.MemorizedRange).where(
+                models.MemorizedRange.submission_id == sub.id,
+                models.MemorizedRange.ayah_start == a,
+                models.MemorizedRange.ayah_end == b,
+            )
+        )
+    ).scalars().first()
     if existing:
         return existing
     rng = models.MemorizedRange(
         member_id=sub.member_id,
         surah_id=sub.surah_id,
-        ayah_start=sub.ayah_start,
-        ayah_end=sub.ayah_end if sub.ayah_end is not None else sub.ayah_start,
+        ayah_start=a,
+        ayah_end=b,
         submission_id=sub.id,
         source=source,
     )
     db.add(rng)
     await db.flush()
     return rng
+
+
+def sub_bounds(sub: models.Submission) -> tuple[int, int] | None:
+    if sub.ayah_start is None:
+        return None
+    return sub.ayah_start, (sub.ayah_end if sub.ayah_end is not None else sub.ayah_start)
+
+
+def active_parts(evals: list[models.Evaluation]) -> list[models.Evaluation]:
+    """Penilaian aktif per rentang: yang belum dikoreksi baris lain. Hanya baris berentang yang dihitung."""
+    corrected = {e.corrects_id for e in evals if e.corrects_id}
+    return [e for e in evals if e.id not in corrected and e.ayah_start is not None]
+
+
+def evaluated_ayahs(evals: list[models.Evaluation]) -> set[int]:
+    out: set[int] = set()
+    for e in active_parts(evals):
+        out.update(range(e.ayah_start, (e.ayah_end or e.ayah_start) + 1))
+    return out
+
+
+def overall_status(sub: models.Submission, evals: list[models.Evaluation]) -> models.SubmissionStatus | None:
+    """Status setoran dari penilaian aktif: None bila masih ada ayat yang belum dinilai."""
+    b = sub_bounds(sub)
+    parts = active_parts(evals)
+    if b is None or not parts:
+        return None
+    if evaluated_ayahs(evals) < set(range(b[0], b[1] + 1)):
+        return None
+    results = {e.result for e in parts}
+    if results == {"passed"}:
+        return models.SubmissionStatus.passed
+    return models.SubmissionStatus.needs_retry if "needs_retry" in results else models.SubmissionStatus.not_fluent
+
+
+def range_status(sub: models.Submission, evals: list[models.Evaluation]) -> list[dict]:
+    """Status per rentang setoran: bagian yang sudah dinilai (hasil aktif) dan sisa yang masih menunggu."""
+    b = sub_bounds(sub)
+    if b is None:
+        return []
+    parts = sorted(active_parts(evals), key=lambda e: e.ayah_start)
+    if not parts:  # penilaian lama tanpa rentang: berlaku untuk seluruh setoran
+        return [{"ayah_start": b[0], "ayah_end": b[1], "status": sub.status.value if sub.status.value != "pending_ai" else "pending_eval", "evaluation_id": None}]
+    out: list[dict] = []
+    cur = b[0]
+    for e in parts:
+        if e.ayah_start > cur:
+            out.append({"ayah_start": cur, "ayah_end": e.ayah_start - 1, "status": "pending_eval", "evaluation_id": None})
+        out.append({"ayah_start": e.ayah_start, "ayah_end": e.ayah_end, "status": e.result, "evaluation_id": e.id})
+        cur = e.ayah_end + 1
+    if cur <= b[1]:
+        out.append({"ayah_start": cur, "ayah_end": b[1], "status": "pending_eval", "evaluation_id": None})
+    return out
 
 
 async def current_assignment(db: AsyncSession, member_id: uuid.UUID) -> models.EvaluatorAssignment | None:
