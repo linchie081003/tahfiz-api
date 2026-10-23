@@ -581,3 +581,25 @@ class ConnectAttempt(Base):
     correct: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     rewarded: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class EvaluationRequest(Base):
+    """Permintaan cek dari Sesi 3 (anak menandai sulit, koreksi, atau orang tua). Satu permintaan terbuka per setoran."""
+
+    __tablename__ = "evaluation_requests"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    member_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("members.id"), index=True)
+    submission_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("submissions.id"), index=True)
+    surah_id: Mapped[int] = mapped_column(Integer)
+    ayah_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    reason: Mapped[str] = mapped_column(String(16))  # child_mark | correction | parent_request
+    assignee_role: Mapped[str] = mapped_column(String(16))  # parent | teacher (penanggung jawab saat dibuat)
+    assignee_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    status: Mapped[str] = mapped_column(String(8), default="open")  # open | done
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    resolved_by: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    resolved_by_role: Mapped[str | None] = mapped_column(String(16), nullable=True)

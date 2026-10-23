@@ -42,7 +42,7 @@ class ResultIn(BaseModel):
 
 
 class PracticeIn(BaseModel):
-    kind: str = Field(pattern="^(murajaah|ziyadah)$")
+    kind: str = Field(pattern="^(murajaah|ziyadah|penguatan)$")
     results: list[ResultIn] = Field(min_length=1, max_length=100)
 
 
