@@ -46,6 +46,7 @@ class SubmissionStatus(str, enum.Enum):
     passed = "passed"
     needs_retry = "needs_retry"
     not_fluent = "not_fluent"
+    superseded = "superseded"
 
 
 class Family(Base):
@@ -475,3 +476,52 @@ class TilawahState(Base):
     owner_id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)
     data: Mapped[dict] = mapped_column(JSON, default=dict)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class MemorizedRange(Base):
+    """Rentang ayat yang sudah lulus. Satuan data hafalan; rentang bersebelahan tidak digabung di data."""
+
+    __tablename__ = "memorized_ranges"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    member_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("members.id"), index=True)
+    surah_id: Mapped[int] = mapped_column(ForeignKey("surahs.id"), index=True)
+    ayah_start: Mapped[int] = mapped_column(Integer)
+    ayah_end: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(16), default="passed")  # passed | superseded
+    submission_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("submissions.id"), nullable=True)
+    source: Mapped[str] = mapped_column(String(16), default="evaluation")  # evaluation | migration
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Evaluation(Base):
+    """Penilaian setoran. Hanya bertambah: koreksi dibuat sebagai baris baru (corrects_id)."""
+
+    __tablename__ = "evaluations"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    submission_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("submissions.id"), index=True)
+    member_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("members.id"), index=True)
+    evaluator_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    evaluator_role: Mapped[str] = mapped_column(String(16), default="parent")  # parent | teacher | unknown
+    result: Mapped[str] = mapped_column(String(16))  # passed | needs_retry | not_fluent
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    rubric_scores: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    corrects_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("evaluations.id"), nullable=True)
+    source: Mapped[str] = mapped_column(String(16), default="live")  # live | migration
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class EvaluatorAssignment(Base):
+    """Penilai aktif per anak; perubahan disimpan sebagai riwayat (siapa, kapan, alasan)."""
+
+    __tablename__ = "evaluator_assignments"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    member_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("members.id"), index=True)
+    evaluator_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)  # null = orang tua keluarga
+    evaluator_role: Mapped[str] = mapped_column(String(16))  # parent | teacher
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    changed_by: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
