@@ -35,12 +35,14 @@ async def test_partial_pass_advances_and_full_pass_completes_and_starts_murajaah
     await setor_flow.apply_submission_evaluation(db_session, sub, m, ok)
     prog = (await db_session.execute(select(MemberSurahProgress).where(MemberSurahProgress.member_id == m.id))).scalar_one()
     assert prog.status == SurahProgressStatus.in_progress and prog.current_ayah == 5
-    assert (await db_session.execute(select(MurojaahItem).where(MurojaahItem.member_id == m.id))).first() is None  # belum lengkap
+    items = (await db_session.execute(select(MurojaahItem).where(MurojaahItem.member_id == m.id))).scalars().all()
+    assert [(i.ayah_start, i.ayah_end) for i in items] == [(2, 4)]  # rentang lulus sudah terjadwal, surat belum selesai
 
     sub2 = await _sub(db_session, m, 114, 5, 6)
     await setor_flow.apply_submission_evaluation(db_session, sub2, m, ok)
     assert prog.status == SurahProgressStatus.passed
-    assert (await db_session.execute(select(MurojaahItem).where(MurojaahItem.member_id == m.id))).first() is not None
+    items = (await db_session.execute(select(MurojaahItem).where(MurojaahItem.member_id == m.id).order_by(MurojaahItem.ayah_start))).scalars().all()
+    assert [(i.ayah_start, i.ayah_end) for i in items] == [(2, 4), (5, 6)]  # jadwal per rentang, tidak digabung
 
 
 @pytest.mark.asyncio
@@ -147,16 +149,17 @@ def test_surah_names_are_transliterated_not_meanings():
 
 
 @pytest.mark.asyncio
-async def test_murajaah_only_for_passed_surahs(db_session, member_with_ziyadah):
+async def test_murajaah_follows_passed_ranges_not_surah_status(db_session, member_with_ziyadah):
     from datetime import date
 
     from app.services import murojaah
 
     m = member_with_ziyadah  # An-Nas masih in_progress
-    db_session.add(MurojaahItem(member_id=m.id, surah_id=114, due_date=date.today()))
+    assert await murojaah.due_items(db_session, m.id, 10) == []  # belum ada rentang lulus: tidak ada murajaah
+    sub = await _sub(db_session, m, 114, 2, 4)
+    await setor_flow.apply_submission_evaluation(db_session, sub, m, schemas.EvaluateSubmissionIn(status=SubmissionStatus.passed))
+    (item,) = (await db_session.execute(select(MurojaahItem).where(MurojaahItem.member_id == m.id))).scalars().all()
+    item.due_date = date.today()
     await db_session.flush()
-    assert await murojaah.due_items(db_session, m.id, 10) == []  # belum lulus: tidak muncul
-    prog = (await db_session.execute(select(MemberSurahProgress).where(MemberSurahProgress.member_id == m.id))).scalar_one()
-    prog.status = SurahProgressStatus.passed
-    await db_session.flush()
-    assert len(await murojaah.due_items(db_session, m.id, 10)) == 1
+    got = await murojaah.due_items(db_session, m.id, 10)
+    assert len(got) == 1 and (got[0].ayah_start, got[0].ayah_end) == (2, 4)  # surat belum lulus, rentangnya sudah boleh

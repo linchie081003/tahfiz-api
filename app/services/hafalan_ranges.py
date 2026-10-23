@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import models
+from app.services import murojaah
 
 
 async def record_evaluation(
@@ -172,6 +173,15 @@ async def backfill_member(db: AsyncSession, member_id: uuid.UUID) -> dict:
             )
         )
         made["assignments"] += 1
+    # Jadwal murajaah: item lama dinormalkan jadi rentang, rentang lulus yang belum terjadwal diberi jadwal.
+    await murojaah.normalize_legacy_items(db, member_id)
+    for r in (
+        await db.execute(
+            select(models.MemorizedRange).where(models.MemorizedRange.member_id == member_id, models.MemorizedRange.status == "passed")
+        )
+    ).scalars().all():
+        if await murojaah.schedule_for_range(db, r):
+            made["schedules"] = made.get("schedules", 0) + 1
     await db.flush()
     return made
 

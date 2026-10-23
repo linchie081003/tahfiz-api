@@ -91,7 +91,9 @@ async def apply_submission_evaluation(
         result=payload.status.value, notes=payload.evaluator_notes, rubric_scores=payload.rubric_scores,
     )
     if sub.context == SubmissionContext.ziyadah and payload.status == SubmissionStatus.passed:
-        await hafalan_ranges.record_passed_range(db, sub)
+        rng = await hafalan_ranges.record_passed_range(db, sub)
+        if rng:
+            await murojaah.schedule_for_range(db, rng)
 
     if sub.context == SubmissionContext.tahsin:
         if payload.status == SubmissionStatus.passed:
@@ -127,7 +129,6 @@ async def apply_submission_evaluation(
                     # Seluruh ayat sudah dihafal: surat lulus dan murajaah mulai dijadwalkan.
                     prog.status = SurahProgressStatus.passed
                     await progress.unlock_next_surah(db, member.id, sub.surah_id)
-                    await murojaah.schedule_for_passed_surah(db, member.id, sub.surah_id)
                 else:
                     prog.status = SurahProgressStatus.in_progress  # lanjut ke ayat berikutnya
                 await gamification.add_xp(db, member.id, "setoran_lulus")
