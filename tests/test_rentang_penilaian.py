@@ -105,7 +105,8 @@ async def test_backfill_partial_progress_and_old_evaluation(db_session):
 async def test_assignment_uses_active_teacher_link(db_session):
     db = db_session
     fam, m = await _setup(db)
-    teacher_id = uuid.uuid4()
+    from tests.helpers import make_teacher
+    teacher_id = await make_teacher(db)
     db.add(models.TeacherLink(teacher_id=teacher_id, family_id=fam.id, member_id=m.id, status="active", requested_by=uuid.uuid4()))
     await db.flush()
     await hafalan_ranges.backfill_member(db, m.id)

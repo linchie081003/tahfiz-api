@@ -185,7 +185,9 @@ async def test_retention_purges_old_recordings(db_session):
     new = models.Submission(member_id=mem.id, family_id=fam.id, context=models.SubmissionContext.tahsin, reference_text="x",
                             recording_key="k", status=models.SubmissionStatus.pending_eval, ai_status="completed",
                             created_at=datetime.now(timezone.utc) - timedelta(days=5))
-    db_session.add_all([fam, mem, old, new])
+    db_session.add_all([fam, mem])
+    await db_session.flush()
+    db_session.add_all([old, new])
     await db_session.flush()
     assert settings.recording_retention_days == 30
     assert await teaching.purge_expired_recordings(db_session) == 1

@@ -1,4 +1,6 @@
 import uuid
+
+from tests.helpers import make_teacher
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -24,7 +26,7 @@ async def _kid(db, with_teacher=False):
     db.add(models.MemberSurahProgress(member_id=m.id, surah_id=78, status=models.SurahProgressStatus.in_progress, current_ayah=1))
     teacher_id = None
     if with_teacher:
-        teacher_id = uuid.uuid4()
+        teacher_id = await make_teacher(db)
         db.add(models.TeacherLink(teacher_id=teacher_id, family_id=fam.id, member_id=m.id, status="active", requested_by=uuid.uuid4()))
     await db.flush()
     return fam, m, teacher_id
@@ -166,7 +168,7 @@ async def test_api_parent_flow_takeover_then_parent_can_evaluate(client):
         await db.flush()
     member = await db.get(models.Member, uuid.UUID(cid))
     db.add(models.MemberSurahProgress(member_id=member.id, surah_id=78, status=models.SurahProgressStatus.in_progress, current_ayah=1))
-    db.add(models.TeacherLink(teacher_id=uuid.uuid4(), family_id=member.family_id, member_id=member.id, status="active", requested_by=uuid.uuid4()))
+    db.add(models.TeacherLink(teacher_id=await make_teacher(db), family_id=member.family_id, member_id=member.id, status="active", requested_by=uuid.uuid4()))
     sub = models.Submission(member_id=member.id, family_id=member.family_id, context=SubmissionContext.ziyadah, surah_id=78, ayah_start=1, ayah_end=5,
                             reference_text="x", recording_key="k", status=SubmissionStatus.pending_eval, created_at=datetime.now(timezone.utc) - timedelta(hours=80))
     db.add(sub)
