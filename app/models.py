@@ -529,3 +529,55 @@ class EvaluatorAssignment(Base):
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     changed_by: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+
+
+class PracticeAttempt(Base):
+    """Hasil latihan mandiri per ayat. Tidak menentukan kelulusan; sumber tanda otomatis."""
+
+    __tablename__ = "practice_attempts"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    member_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("members.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(16))  # murajaah | ziyadah | sambung
+    surah_id: Mapped[int] = mapped_column(ForeignKey("surahs.id"))
+    ayah_number: Mapped[int] = mapped_column(Integer)
+    result: Mapped[str] = mapped_column(String(8))  # lancar | ragu | lupa
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class DifficultMark(Base):
+    """Tanda ayat atau kata sulit. Terpisah dari kelulusan dan jadwal murajaah."""
+
+    __tablename__ = "difficult_marks"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    member_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("members.id"), index=True)
+    surah_id: Mapped[int] = mapped_column(ForeignKey("surahs.id"))
+    ayah_number: Mapped[int] = mapped_column(Integer)
+    word_start: Mapped[int | None] = mapped_column(Integer, nullable=True)  # kosong = tanda tingkat ayat
+    word_end: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    word_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source: Mapped[str] = mapped_column(String(8), default="manual")  # manual | auto
+    created_by_role: Mapped[str] = mapped_column(String(16), default="child")  # child | evaluator
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(8), default="active")  # active | inactive
+    inactive_reason: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    streak: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class ConnectAttempt(Base):
+    """Hasil sambung ayat (bonus XP, bukan syarat sesi)."""
+
+    __tablename__ = "connect_attempts"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    member_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("members.id"), index=True)
+    surah_id: Mapped[int] = mapped_column(ForeignKey("surahs.id"))
+    ayah_from: Mapped[int] = mapped_column(Integer)  # ayat yang diberikan; anak melanjutkan ayah_from + 1
+    mode: Mapped[str] = mapped_column(String(8))  # ingat | pilihan
+    result: Mapped[str] = mapped_column(String(8))
+    correct: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    rewarded: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
