@@ -227,7 +227,7 @@ async def queue(t: models.Teacher = Depends(require_teacher), db: AsyncSession =
         link = await teaching.active_link(db, s.member_id)
         can_hear = bool(link and link.recording_consent and s.recording_deleted_at is None)
         out.append({
-            "id": s.id, "context": s.context.value, "member_id": s.member_id, "member_name": m.name if m else "",
+            "id": s.id, "context": s.context.value, "tahsin_point": s.tahsin_point, "member_id": s.member_id, "member_name": m.name if m else "",
             "reference_text": s.reference_text, "ai_insights": s.ai_insights, "created_at": s.created_at,
             "due_at": teaching.due_at(s, t), "overdue": teaching.is_overdue(s, t), "can_hear": can_hear,
         })
