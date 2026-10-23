@@ -14,7 +14,7 @@ from app.config import settings
 from app.database import get_db
 from app.deps import require_teacher
 from app.routers.member_progress import DAILY_AYAHS, STRONG_DAYS, MemberSettingsIn, MemberSettingsOut, PlacementIn, get_member_settings
-from app.services import corrections, setor_flow, storage, tahsin_points, teaching
+from app.services import corrections, setor_flow, storage, tahsin_points, teaching, verification
 
 router = APIRouter(prefix="/teacher", tags=["teacher"])
 NIL = uuid.UUID(int=0)
@@ -305,6 +305,29 @@ async def correct_evaluation(submission_id: uuid.UUID, payload: schemas.Correcti
         ayah_start=payload.ayah_start, ayah_end=payload.ayah_end,
     )
     return {"id": ev.id, "status": sub.status.value}
+
+
+class VerifyIn(BaseModel):
+    decision: str = Field(pattern="^(lulus|tolak)$")
+    note: str = Field(min_length=1, max_length=500)
+
+
+@router.get("/students/{member_id}/verifikasi")
+async def student_verification(member_id: uuid.UUID, t: models.Teacher = Depends(require_teacher), db: AsyncSession = Depends(get_db)):
+    """Hafalan lama murid tanpa bukti penilaian lulus, menunggu keputusan guru."""
+    await _student_link(db, t, member_id)
+    member = await db.get(models.Member, member_id)
+    return await verification.as_dicts(db, member)
+
+
+@router.post("/verifikasi/{range_id}")
+async def verify_range(range_id: uuid.UUID, payload: VerifyIn, t: models.Teacher = Depends(require_teacher), db: AsyncSession = Depends(get_db)):
+    rng = await db.get(models.MemorizedRange, range_id)
+    if not rng:
+        raise HTTPException(404, "Rentang tidak ditemukan")
+    await _student_link(db, t, rng.member_id)
+    r = await verification.resolve(db, rng, decision=payload.decision, note=payload.note, by=t.id, role="teacher")
+    return {"id": r.id, "status": r.status}
 
 
 @router.post("/students/{member_id}/points/{point}/result")
