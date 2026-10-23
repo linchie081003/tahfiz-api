@@ -33,13 +33,13 @@ class Settings(BaseSettings):
     vapid_claims_email: str = "mailto:admin@hafiz.local"
     # Pra-cek STT: openai (HTTP API) atau faster_whisper (Whisper open source lokal).
     stt_enabled: bool = False
-    stt_engine: str = "faster_whisper"  # faster_whisper (gratis) | openai (cloud)
+    stt_engine: str = "openai"  # openai = HTTP (layanan stt-machine atau cloud) | faster_whisper = lokal di proses ini
     stt_api_key: str = ""
     stt_base_url: str = "https://api.openai.com/v1"
     stt_model: str = "whisper-1"
     stt_whisper_model: str = "base"  # faster-whisper: tiny, base, small, medium, …
     stt_whisper_device: str = "cpu"  # cpu | cuda
-    stt_timeout_seconds: float = 25.0
+    stt_timeout_seconds: float = 60.0
     # Pengingat
     reminder_timezone: str = "Asia/Jakarta"
     rate_limit_enabled: bool = True

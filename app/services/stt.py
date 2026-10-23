@@ -125,7 +125,7 @@ def _transcribe_faster_whisper_sync(audio: bytes, content_type: str, reference_h
         return SttResult(None, "stt_api")
 
 
-async def _transcribe_openai_http(audio: bytes, content_type: str) -> SttResult:
+async def _transcribe_openai_http(audio: bytes, content_type: str, reference_hint: str | None = None) -> SttResult:
     ext = _ext_from_content_type(content_type)
     api_key = settings.stt_api_key or "local"
     try:
@@ -133,7 +133,10 @@ async def _transcribe_openai_http(audio: bytes, content_type: str) -> SttResult:
             r = await client.post(
                 f"{settings.stt_base_url.rstrip('/')}/audio/transcriptions",
                 headers={"Authorization": f"Bearer {api_key}"},
-                data={"model": settings.stt_model, "language": "ar", "response_format": "json", "temperature": "0"},
+                data={
+                    "model": settings.stt_model, "language": "ar", "response_format": "json", "temperature": "0",
+                    **({"prompt": reference_hint.strip()[:220]} if reference_hint and reference_hint.strip() else {}),
+                },
                 files={"file": (f"rec.{ext}", audio, content_type)},
             )
         if r.status_code >= 400:
@@ -164,7 +167,7 @@ async def transcribe(
     engine = (settings.stt_engine or "openai").lower()
     if engine == "faster_whisper":
         return await asyncio.to_thread(_transcribe_faster_whisper_sync, audio, content_type, reference_hint)
-    return await _transcribe_openai_http(audio, content_type)
+    return await _transcribe_openai_http(audio, content_type, reference_hint)
 
 
 async def transcribe_text(audio: bytes, content_type: str = "audio/webm") -> str | None:

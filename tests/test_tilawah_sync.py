@@ -119,6 +119,24 @@ async def test_stt_preload_noop_when_disabled_and_load_is_lazy():
         settings.stt_enabled = old
 
 
-def test_faster_whisper_is_importable():
-    import faster_whisper  # noqa: F401
-    import av  # noqa: F401
+async def test_http_engine_sends_reference_prompt(monkeypatch):
+    import httpx
+    from app.config import settings
+    from app.services import stt
+
+    seen = {}
+
+    async def fake_post(self, url, headers=None, data=None, files=None, **kw):
+        seen.update(url=url, data=data, auth=headers["Authorization"])
+        return httpx.Response(200, json={"text": "ok"}, request=httpx.Request("POST", url))
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+    monkeypatch.setattr(settings, "stt_enabled", True)
+    monkeypatch.setattr(settings, "stt_engine", "openai")
+    monkeypatch.setattr(settings, "stt_base_url", "https://stt.example.com/v1")
+    monkeypatch.setattr(settings, "stt_api_key", "kunci")
+    r = await stt.transcribe(b"abc", "audio/webm", "قُلْ هُوَ")
+    assert r.text == "ok"
+    assert seen["url"] == "https://stt.example.com/v1/audio/transcriptions"
+    assert seen["data"]["prompt"] == "قُلْ هُوَ" and seen["data"]["language"] == "ar"
+    assert seen["auth"] == "Bearer kunci"
