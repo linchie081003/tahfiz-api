@@ -333,6 +333,8 @@ class MemberSettings(Base):
     placement: Mapped[str | None] = mapped_column(String(16), nullable=True)  # none | basic | fluent (tingkat awal, dapat diubah guru)
     hafalan_track: Mapped[str] = mapped_column(String(16), default="juz30")  # juz30 | mushaf (dari Al-Fatihah); mushaf hanya berlaku bila coverage=all
     parallel_hafalan: Mapped[bool] = mapped_column(Boolean, default=False)  # True: hafalan dan murajaah terbuka walau Pulau 1-3 belum lulus
+    hafalan_order: Mapped[str] = mapped_column(String(16), default="sequential")  # sequential (default) | free: boleh loncat ke surat lain
+    focus_surah_id: Mapped[int | None] = mapped_column(Integer, nullable=True)  # surat yang dipilih anak pada mode free
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 

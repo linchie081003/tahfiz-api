@@ -67,7 +67,64 @@ async def set_track(db: AsyncSession, member_id: uuid.UUID, track: str) -> None:
     await db.flush()
 
 
+SHORT_SURAH_MAX = 10  # surat sependek ini disetor sekaligus utuh
+
+
+def plan_range(ayah_count: int, current_ayah: int, daily_ayahs: int) -> tuple[int, int, str]:
+    """Rentang setoran berikutnya. Surat pendek: seluruh sisa ayat sekaligus. Surat panjang: sebanyak target harian."""
+    start = min(max(current_ayah, 1), max(ayah_count, 1))
+    if ayah_count <= SHORT_SURAH_MAX:
+        return start, ayah_count, "seluruh_surat"
+    return start, min(start + max(daily_ayahs, 1) - 1, ayah_count), "target_harian"
+
+
+async def get_settings(db: AsyncSession, member_id: uuid.UUID) -> MemberSettings | None:
+    return (await db.execute(select(MemberSettings).where(MemberSettings.member_id == member_id))).scalar_one_or_none()
+
+
+async def setor_plan(db: AsyncSession, member_id: uuid.UUID) -> dict | None:
+    active = await get_active_surah(db, member_id)
+    if not active:
+        return None
+    surah = await db.get(Surah, active.surah_id)
+    if not surah:
+        return None
+    ms = await get_settings(db, member_id)
+    start, end, mode = plan_range(surah.ayah_count, active.current_ayah, ms.daily_ayahs if ms else 1)
+    return {"surah_id": surah.id, "name_id": surah.name_id, "ayah_count": surah.ayah_count, "ayah_start": start,
+            "ayah_end": end, "mode": mode, "done_ayahs": max(start - 1, 0)}
+
+
+async def choose_surah(db: AsyncSession, member_id: uuid.UUID, surah_id: int) -> None:
+    """Mode bebas: pilih surat yang dihafal sekarang (boleh loncat). Mode berurutan menolak."""
+    from fastapi import HTTPException
+
+    ms = await get_settings(db, member_id)
+    if not ms or ms.hafalan_order != "free":
+        raise HTTPException(409, "Urutan hafalan diatur berurutan. Minta orang tua atau guru membuka mode bebas.")
+    surahs = await track_surahs(db, await effective_track(db, member_id), local=True)
+    if surah_id not in {s_.id for s_ in surahs}:
+        raise HTTPException(404, "Surat tidak ada di jalur hafalan")
+    row = (await db.execute(select(MemberSurahProgress).where(MemberSurahProgress.member_id == member_id, MemberSurahProgress.surah_id == surah_id))).scalar_one_or_none()
+    if row is None:
+        row = MemberSurahProgress(member_id=member_id, surah_id=surah_id, status=SurahProgressStatus.in_progress, current_ayah=1)
+        db.add(row)
+    elif row.status == SurahProgressStatus.passed:
+        raise HTTPException(409, "Surat ini sudah hafal. Ulangi lewat murajaah.")
+    elif row.status == SurahProgressStatus.locked:
+        row.status = SurahProgressStatus.in_progress
+    ms.focus_surah_id = surah_id
+    await db.flush()
+
+
 async def get_active_surah(db: AsyncSession, member_id: uuid.UUID) -> MemberSurahProgress | None:
+    ms = await get_settings(db, member_id)
+    if ms and ms.hafalan_order == "free" and ms.focus_surah_id:
+        focus = (await db.execute(select(MemberSurahProgress).where(
+            MemberSurahProgress.member_id == member_id, MemberSurahProgress.surah_id == ms.focus_surah_id,
+            MemberSurahProgress.status.in_([SurahProgressStatus.in_progress, SurahProgressStatus.needs_retry])))).scalar_one_or_none()
+        if focus:
+            return focus
     q = (
         select(MemberSurahProgress)
         .where(
@@ -81,6 +138,11 @@ async def get_active_surah(db: AsyncSession, member_id: uuid.UUID) -> MemberSura
 
 
 async def unlock_next_surah(db: AsyncSession, member_id: uuid.UUID, current_surah_id: int):
+    ms = await get_settings(db, member_id)
+    if ms and ms.hafalan_order == "free":
+        if ms.focus_surah_id == current_surah_id:
+            ms.focus_surah_id = None  # surat selesai; anak memilih surat berikutnya sendiri
+        return
     surahs = await track_surahs(db, await effective_track(db, member_id), local=True)
     ids = [x.id for x in surahs]
     if current_surah_id not in ids or ids.index(current_surah_id) + 1 >= len(ids):
