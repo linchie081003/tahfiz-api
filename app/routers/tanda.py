@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import models
 from app.database import get_db
 from app.deps import require_member_id
-from app.services import tanda
+from app.services import daily_sessions, tanda
 
 router = APIRouter(tags=["tanda"])
 
@@ -77,7 +77,11 @@ async def remove_mark(mark_id: uuid.UUID, member_id=Depends(require_member_id), 
 @router.post("/latihan")
 async def practice(payload: PracticeIn, member_id=Depends(require_member_id), db: AsyncSession = Depends(get_db)):
     """Hasil latihan mandiri per ayat. Hanya memengaruhi tanda dan prioritas, tidak kelulusan."""
-    return await tanda.record_results(db, member_id, payload.kind, [(r.surah_id, r.ayah_number, r.result) for r in payload.results])
+    res = await tanda.record_results(db, member_id, payload.kind, [(r.surah_id, r.ayah_number, r.result) for r in payload.results])
+    if payload.kind == "penguatan":
+        member = await db.get(models.Member, member_id)
+        await daily_sessions.mark_completed(db, member, "sesi3", activity_type="sesi3_practice", activity_id=None)
+    return res
 
 
 @router.get("/sambung")

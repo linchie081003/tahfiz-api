@@ -276,6 +276,9 @@ class SubmissionOut(BaseModel):
     reference_text: str
     reference_text_tajweed: str | None = None
     tahsin_point: int | None = None  # ada = ujian Pulau tahsin
+    ayah_start: int | None = None
+    ayah_end: int | None = None
+    ranges: list[dict[str, Any]] | None = None  # status per rentang ayat (penilaian parsial)
     status: SubmissionStatus
     ai_status: str
     ai_insights: dict[str, Any] | None
