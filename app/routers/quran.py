@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services.surah_translit import surah_name
 from app import models, schemas
 from app.database import get_db
 from app.deps import AuthContext, get_current_context
@@ -24,7 +25,7 @@ def _surah_out(row: models.Surah) -> schemas.SurahOut:
     return schemas.SurahOut(
         id=row.id,
         name_ar=row.name_ar,
-        name_id=indonesian_surah_name(row.id, row.name_id),
+        name_id=surah_name(row.id, indonesian_surah_name(row.id, row.name_id)),
         ayah_count=row.ayah_count,
         juz_number=row.juz_number,
         curriculum_order=row.curriculum_order,

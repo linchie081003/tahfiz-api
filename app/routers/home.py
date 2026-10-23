@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services.surah_translit import surah_name
 from app import models, schemas
 from app.database import get_db
 from app.deps import AuthContext, get_current_context, optional_member_id
@@ -77,13 +78,13 @@ async def home(
         if due:
             mission_title = "MISI HARI INI"
             surah = await db.get(models.Surah, due[0].surah_id)
-            mission_detail = f"Murojaah {member.name}: {surah.name_id if surah else 'surat'}"
+            mission_detail = f"Murojaah {member.name}: {surah_name(surah.id, surah.name_id) if surah else 'surat'}"
             mission_action = "murojaah"
             mission_xp = 15
         elif active:
             surah = await db.get(models.Surah, active.surah_id)
             target = member_target
-            mission_detail = f"Ziyadah {member.name}: {target} ayat {surah.name_id if surah else ''}"
+            mission_detail = f"Ziyadah {member.name}: {target} ayat {surah_name(surah.id, surah.name_id) if surah else ''}"
             mission_action = "ziyadah"
             mission_xp = 30
             mission_title = "MISI HARI INI"
@@ -100,13 +101,13 @@ async def home(
     elif due:
         mission_title = "MISI HARI INI"
         surah = await db.get(models.Surah, due[0].surah_id)
-        mission_detail = f"Murojaah: {surah.name_id if surah else 'surat'}"
+        mission_detail = f"Murojaah: {surah_name(surah.id, surah.name_id) if surah else 'surat'}"
         mission_action = "murojaah"
         mission_xp = 15
     elif active:
         surah = await db.get(models.Surah, active.surah_id)
         target = member_target
-        mission_detail = f"Setor {target} ayat {surah.name_id if surah else ''}"
+        mission_detail = f"Setor {target} ayat {surah_name(surah.id, surah.name_id) if surah else ''}"
         mission_action = "ziyadah"
         mission_xp = 30
         mission_title = "MISI HARI INI"
@@ -149,11 +150,11 @@ async def home(
         if due:
             s0 = await db.get(models.Surah, due[0].surah_id)
             if s0:
-                mission_items["murojaah"] = f"{s0.name_id}, {len(due)} ayat" if len(due) > 1 else s0.name_id
+                mission_items["murojaah"] = f"{surah_name(s0.id, s0.name_id)}, {len(due)} ayat" if len(due) > 1 else surah_name(s0.id, s0.name_id)
         if active:
             s1 = await db.get(models.Surah, active.surah_id)
             if s1:
-                mission_items["ziyadah"] = f"{s1.name_id}, {member_target} ayat"
+                mission_items["ziyadah"] = f"{surah_name(s1.id, s1.name_id)}, {member_target} ayat"
 
     return schemas.HomeOut(
         greeting_name=member.name,

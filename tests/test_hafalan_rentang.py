@@ -136,3 +136,11 @@ def test_tilawah_reciter_is_alafasy_and_exists():
 
     assert rc.TILAWAH_RECITER_ID == "alafasy"
     assert rc.everyayah_url(1, 1, rc.TILAWAH_RECITER_ID).endswith("Alafasy_128kbps/001001.mp3")
+
+
+def test_surah_names_are_transliterated_not_meanings():
+    from app.services.surah_translit import surah_name
+
+    assert surah_name(80, "Ia Bermuka Masam") == "'Abasa"
+    assert surah_name(1) == "Al-Fatihah" and surah_name(114) == "An-Nas" and surah_name(78) == "An-Naba'"
+    assert surah_name(999, "x") == "x"

@@ -3,6 +3,7 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services.surah_translit import surah_name
 from app.models import Member, MemberSettings, MemberSurahProgress, Surah, SurahProgressStatus, TahsinStatus
 
 
@@ -112,7 +113,7 @@ async def setor_plan(db: AsyncSession, member_id: uuid.UUID) -> dict | None:
         return None
     ms = await get_settings(db, member_id)
     start, end, mode = plan_range(surah.ayah_count, active.current_ayah, ms.daily_ayahs if ms else 1)
-    return {"surah_id": surah.id, "name_id": surah.name_id, "ayah_count": surah.ayah_count, "ayah_start": start,
+    return {"surah_id": surah.id, "name_id": surah_name(surah.id, surah.name_id), "ayah_count": surah.ayah_count, "ayah_start": start,
             "ayah_end": end, "mode": mode, "done_ayahs": max(start - 1, 0)}
 
 
