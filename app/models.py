@@ -685,3 +685,17 @@ class DailySession(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class DailySessionActivity(Base):
+    """Bukti aktivitas yang berkontribusi pada satu sesi harian. Hanya bertambah; tidak pernah ditimpa."""
+
+    __tablename__ = "daily_session_activities"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    session_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("daily_sessions.id"), index=True)
+    member_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("members.id"), index=True)
+    activity_type: Mapped[str] = mapped_column(String(24))
+    activity_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    ayah: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

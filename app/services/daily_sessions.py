@@ -14,7 +14,7 @@ atau dimatikan tidak dihitung, begitu pula hari yang masih berjalan.
 from __future__ import annotations
 
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -96,11 +96,13 @@ async def mark_completed(
     db: AsyncSession, member: models.Member, kind: str, *, activity_type: str, activity_id: uuid.UUID | None, ayah: int = 0, day: date | None = None,
 ) -> models.DailySession:
     """Catat aktivitas sesi. Sesi1 selesai setelah batas ayat tercapai atau murajaah jatuh tempo habis."""
-    from datetime import datetime, timezone
-
     day = day or today()
     await ensure_day(db, member, day)
     row = await _row(db, member.id, day, kind)
+    # Bukti lengkap: tiap aktivitas ditambahkan sebagai baris sendiri. Kolom di DailySession hanya menunjuk yang terakhir.
+    await db.flush()
+    db.add(models.DailySessionActivity(session_id=row.id, member_id=member.id, activity_type=activity_type, activity_id=activity_id, ayah=ayah,
+                                       created_at=datetime.now(timezone.utc)))
     row.activity_type, row.activity_id = activity_type, activity_id or row.activity_id
     row.ayah_done = (row.ayah_done or 0) + ayah
     if row.status in (DISABLED,):
@@ -121,6 +123,16 @@ async def mark_completed(
         row.completed_at = datetime.now(timezone.utc)
     await db.flush()
     return row
+
+
+async def activities(db: AsyncSession, session_id: uuid.UUID) -> list[models.DailySessionActivity]:
+    return list(
+        (
+            await db.execute(
+                select(models.DailySessionActivity).where(models.DailySessionActivity.session_id == session_id).order_by(models.DailySessionActivity.created_at, models.DailySessionActivity.id)
+            )
+        ).scalars().all()
+    )
 
 
 async def disable(db: AsyncSession, member: models.Member, kind: str, day: date, reason: str, by: uuid.UUID | None) -> models.DailySession:

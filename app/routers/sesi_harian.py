@@ -77,6 +77,19 @@ async def child_sessions(
     return {"sessions": [_out(r) for r in rows], "kpi": await ds.consistency(db, member_id, start, end)}
 
 
+@router.get("/anak/{member_id}/{session_id}/aktivitas")
+async def session_activities(member_id: uuid.UUID, session_id: uuid.UUID, ctx: AuthContext = Depends(require_parent), db: AsyncSession = Depends(get_db)):
+    """Bukti aktivitas lengkap untuk satu sesi harian."""
+    await _family_member(db, ctx, member_id)
+    row = await db.get(models.DailySession, session_id)
+    if not row or row.member_id != member_id:
+        raise HTTPException(404, "Sesi tidak ditemukan")
+    return [
+        {"id": a.id, "activity_type": a.activity_type, "activity_id": a.activity_id, "ayah": a.ayah, "created_at": a.created_at}
+        for a in await ds.activities(db, session_id)
+    ]
+
+
 @router.post("/anak/{member_id}/{kind}/nonaktif")
 async def disable_session(member_id: uuid.UUID, kind: str, payload: DisableIn, ctx: AuthContext = Depends(require_parent), db: AsyncSession = Depends(get_db)):
     member = await _family_member(db, ctx, member_id)

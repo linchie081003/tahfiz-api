@@ -29,11 +29,27 @@ from app.models import (
 )
 
 
+TEST_DB = os.environ.get("TEST_DATABASE_URL")  # mis. postgresql+asyncpg://... untuk menjalankan seluruh tes di PostgreSQL
+
+
+def _engine(sqlite_url: str, **kw):
+    if TEST_DB:
+        from sqlalchemy.pool import NullPool
+        return create_async_engine(TEST_DB, poolclass=NullPool)
+    return create_async_engine(sqlite_url, **kw)
+
+
+async def _fresh_schema(engine):
+    async with engine.begin() as conn:
+        if TEST_DB:
+            await conn.run_sync(Base.metadata.drop_all)
+        await conn.run_sync(Base.metadata.create_all)
+
+
 @pytest_asyncio.fixture
 async def db_session():
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    engine = _engine("sqlite+aiosqlite:///:memory:")
+    await _fresh_schema(engine)
     session_factory = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
     async with session_factory() as session:
         yield session
@@ -56,11 +72,11 @@ async def member_with_ziyadah(db_session: AsyncSession):
             tahsin_status=TahsinStatus.passed,
         ),
     )
+    await db_session.flush()  # induk dulu: PostgreSQL menegakkan urutan foreign key
+    db_session.add(Surah(id=114, name_ar="الناس", name_id="An-Nas", ayah_count=6, juz_number=30, curriculum_order=1))
+    await db_session.flush()
     db_session.add(MemberStats(member_id=member_id, xp=0, level=1, streak_days=0))
     db_session.add(XpConfig(activity_key="setoran_lulus", xp_value=30, label="Setoran lulus"))
-    db_session.add(
-        Surah(id=114, name_ar="الناس", name_id="An-Nas", ayah_count=6, juz_number=30, curriculum_order=1),
-    )
     db_session.add(
         MemberSurahProgress(
             member_id=member_id,
@@ -85,9 +101,8 @@ from app.database import get_db  # noqa: E402
 
 @pytest_asyncio.fixture
 async def client():
-    engine = create_async_engine("sqlite+aiosqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False})
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    engine = _engine("sqlite+aiosqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False})
+    await _fresh_schema(engine)
     maker = async_sessionmaker(engine, expire_on_commit=False, autoflush=False)
 
     async def _get_db():

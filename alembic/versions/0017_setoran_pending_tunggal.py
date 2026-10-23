@@ -33,11 +33,11 @@ def upgrade() -> None:
                                    WHERE n.member_id = s.member_id AND n.surah_id = s.surah_id
                                      AND n.ayah_start = s.ayah_start AND n.ayah_end IS NOT DISTINCT FROM s.ayah_end
                                      AND n.context = 'ziyadah' AND n.status IN ('pending_ai','pending_eval')
-                                   ORDER BY n.created_at DESC LIMIT 1)
+                                   ORDER BY n.created_at DESC, n.id DESC LIMIT 1)
         WHERE s.context = 'ziyadah' AND s.status IN ('pending_ai', 'pending_eval')
           AND EXISTS (SELECT 1 FROM submissions n WHERE n.member_id = s.member_id AND n.surah_id = s.surah_id
                       AND n.ayah_start = s.ayah_start AND n.ayah_end IS NOT DISTINCT FROM s.ayah_end
-                      AND n.context = 'ziyadah' AND n.status IN ('pending_ai','pending_eval') AND n.created_at > s.created_at)
+                      AND n.context = 'ziyadah' AND n.status IN ('pending_ai','pending_eval') AND (n.created_at, n.id) > (s.created_at, s.id))
     """)) if bind.dialect.name == "postgresql" else None
     op.create_index(
         "uq_submissions_pending_range", "submissions", ["member_id", "surah_id", "ayah_start", "ayah_end"],
