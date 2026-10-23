@@ -140,3 +140,33 @@ async def test_http_engine_sends_reference_prompt(monkeypatch):
     assert seen["url"] == "https://stt.example.com/v1/audio/transcriptions"
     assert seen["data"]["prompt"] == "قُلْ هُوَ" and seen["data"]["language"] == "ar"
     assert seen["auth"] == "Bearer kunci"
+
+
+
+async def test_stt_http_retries_once_on_timeout(monkeypatch):
+    import httpx
+    from app.services import stt
+
+    calls = {"n": 0}
+
+    class FakeClient:
+        def __init__(self, *a, **k): ...
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def post(self, *a, **k):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise httpx.ReadTimeout("t")
+            return httpx.Response(200, json={"text": "بسم الله"})
+
+    monkeypatch.setattr(stt.httpx, "AsyncClient", FakeClient)
+    res = await stt._transcribe_openai_http(b"x", "audio/webm")
+    assert res.text == "بسم الله" and calls["n"] == 2
+
+    calls["n"] = -5  # selalu timeout
+    class Always(FakeClient):
+        async def post(self, *a, **k):
+            raise httpx.ReadTimeout("t")
+    monkeypatch.setattr(stt.httpx, "AsyncClient", Always)
+    res = await stt._transcribe_openai_http(b"x", "audio/webm")
+    assert res.failure == "stt_network"

@@ -128,31 +128,41 @@ def _transcribe_faster_whisper_sync(audio: bytes, content_type: str, reference_h
 async def _transcribe_openai_http(audio: bytes, content_type: str, reference_hint: str | None = None) -> SttResult:
     ext = _ext_from_content_type(content_type)
     api_key = settings.stt_api_key or "local"
-    try:
-        async with httpx.AsyncClient(timeout=settings.stt_timeout_seconds) as client:
-            r = await client.post(
-                f"{settings.stt_base_url.rstrip('/')}/audio/transcriptions",
-                headers={"Authorization": f"Bearer {api_key}"},
-                data={
-                    "model": settings.stt_model, "language": "ar", "response_format": "json", "temperature": "0",
-                    **({"prompt": reference_hint.strip()[:220]} if reference_hint and reference_hint.strip() else {}),
-                },
-                files={"file": (f"rec.{ext}", audio, content_type)},
-            )
-        if r.status_code >= 400:
-            code = _failure_from_status(r.status_code)
-            logger.warning("STT HTTP %s -> %s", r.status_code, code)
-            return SttResult(None, code)
-        text = r.json().get("text")
-        if isinstance(text, str) and text.strip():
-            return SttResult(text.strip(), None)
-        return SttResult(None, "stt_empty")
-    except httpx.HTTPError as e:
-        logger.warning("STT jaringan gagal: %s", type(e).__name__)
-        return SttResult(None, "stt_network")
-    except Exception as e:
-        logger.warning("STT gagal: %s", type(e).__name__)
-        return SttResult(None, "stt_api")
+    data = {
+        "model": settings.stt_model, "language": "ar", "response_format": "json", "temperature": "0",
+        **({"prompt": reference_hint.strip()[:220]} if reference_hint and reference_hint.strip() else {}),
+    }
+    url = f"{settings.stt_base_url.rstrip('/')}/audio/transcriptions"
+    # Layanan STT terpisah bisa sedang tidur/memuat model: coba ulang sekali bila timeout/tersambung gagal.
+    attempts = 2
+    for attempt in range(1, attempts + 1):
+        try:
+            async with httpx.AsyncClient(timeout=settings.stt_timeout_seconds) as client:
+                r = await client.post(
+                    url,
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    data=data,
+                    files={"file": (f"rec.{ext}", audio, content_type)},
+                )
+            if r.status_code >= 400:
+                code = _failure_from_status(r.status_code)
+                logger.warning("STT HTTP %s -> %s", r.status_code, code)
+                return SttResult(None, code)
+            text = r.json().get("text")
+            if isinstance(text, str) and text.strip():
+                return SttResult(text.strip(), None)
+            return SttResult(None, "stt_empty")
+        except (httpx.TimeoutException, httpx.ConnectError) as e:
+            logger.warning("STT jaringan gagal (percobaan %s/%s): %s", attempt, attempts, type(e).__name__)
+            if attempt == attempts:
+                return SttResult(None, "stt_network")
+        except httpx.HTTPError as e:
+            logger.warning("STT jaringan gagal: %s", type(e).__name__)
+            return SttResult(None, "stt_network")
+        except Exception as e:
+            logger.warning("STT gagal: %s", type(e).__name__)
+            return SttResult(None, "stt_api")
+    return SttResult(None, "stt_network")
 
 
 async def transcribe(
