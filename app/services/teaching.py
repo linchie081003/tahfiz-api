@@ -109,3 +109,9 @@ async def finalize_deletion_requests(db: AsyncSession, now: datetime | None = No
             r.status = "purged"
             done += 1
     return done
+
+
+async def takeover_for(db: AsyncSession, submission_id: uuid.UUID) -> models.EvaluationTakeover | None:
+    return (
+        await db.execute(select(models.EvaluationTakeover).where(models.EvaluationTakeover.submission_id == submission_id))
+    ).scalars().first()

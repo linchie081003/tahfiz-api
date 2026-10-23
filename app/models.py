@@ -603,3 +603,37 @@ class EvaluationRequest(Base):
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     resolved_by: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
     resolved_by_role: Mapped[str | None] = mapped_column(String(16), nullable=True)
+
+
+class AppNotification(Base):
+    """Notifikasi dalam aplikasi (kanal pertama MVP; email menyusul lewat antrean yang sama)."""
+
+    __tablename__ = "app_notifications"
+    __table_args__ = (UniqueConstraint("recipient_role", "recipient_id", "kind", "submission_id"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    recipient_role: Mapped[str] = mapped_column(String(8), index=True)  # parent | teacher
+    recipient_id: Mapped[uuid.UUID] = mapped_column(Uuid, index=True)  # parent: id keluarga; teacher: id guru
+    kind: Mapped[str] = mapped_column(String(24))  # pending_24 | pending_48 | pending_72 | parent_nudge
+    submission_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("submissions.id"))
+    member_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("members.id"))
+    title: Mapped[str] = mapped_column(String(120))
+    body: Mapped[str] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class EvaluationTakeover(Base):
+    """Pengambilalihan penilaian secara manual. Tidak pernah otomatis."""
+
+    __tablename__ = "evaluation_takeovers"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    submission_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("submissions.id"), index=True)
+    from_role: Mapped[str] = mapped_column(String(16))
+    from_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    to_role: Mapped[str] = mapped_column(String(16))
+    to_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    reason: Mapped[str] = mapped_column(Text)
+    created_by: Mapped[uuid.UUID] = mapped_column(Uuid)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

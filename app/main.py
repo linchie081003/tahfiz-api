@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.database import Base, engine
-from app.routers import auth, family, gamify, member_progress, privacy, teacher, home, members, murojaah, notifications, parent, peta, quran, setor, settings as settings_router, sesi3, tahsin, tanda, tilawah
+from app.routers import auth, family, gamify, member_progress, privacy, teacher, home, members, murojaah, notifikasi, notifications, parent, peta, quran, setor, settings as settings_router, sesi3, tahsin, tanda, tilawah
 
 
 @asynccontextmanager
@@ -78,6 +78,7 @@ app.include_router(privacy.inst_router)
 app.include_router(tilawah.router)
 app.include_router(tanda.router)
 app.include_router(sesi3.router)
+app.include_router(notifikasi.router)
 
 
 @app.get("/health")

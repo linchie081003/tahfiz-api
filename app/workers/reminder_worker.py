@@ -7,6 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from app.database import AsyncSessionLocal
+from app.services.escalation import run_escalation
 from app.services.reminders import run_reminders
 
 logging.basicConfig(level=logging.INFO)
@@ -22,6 +23,11 @@ async def main():
                 await db.commit()
             if stats["members_notified"]:
                 log.info("pengingat: %s", stats)
+            async with AsyncSessionLocal() as db:
+                esc = await run_escalation(db)
+                await db.commit()
+            if esc["created"]:
+                log.info("eskalasi penilaian: %s", esc)
         except Exception:
             log.exception("run_reminders gagal")
         await asyncio.sleep(60)

@@ -225,3 +225,26 @@ async def test_admin_summary_verify_and_assign_teacher_on_transfer(client):
     assert len((await client.get("/institution/families", headers=H(admin))).json()) == 1
     v = await client.post(f"/institution/teachers/{gid}/verify", json={"approve": False}, headers=H(admin))
     assert v.json()["status"] == "rejected"
+
+
+async def test_takeover_blocks_teacher_and_teacher_gets_escalation_notice(client, db_session):
+    from sqlalchemy import select
+
+    tok, tok2, cid, ctok = await setup_family(client)
+    ttok = await reg_teacher(client)
+    await link_teacher(client, tok, tok2, cid, ttok)
+    sid = (await submit(client, ctok)).json()["id"]
+    from app.database import get_db
+    from app.main import app
+
+    gen = app.dependency_overrides[get_db]()
+    db = await gen.__anext__()
+    sub = await db.get(models.Submission, uuid.UUID(sid))
+    sub.created_at = datetime.now(timezone.utc) - timedelta(hours=30)
+    await db.commit()
+    notes = (await client.get("/notifikasi", headers=H(ttok))).json()
+    assert [n["kind"] for n in notes] == ["pending_24"] and notes[0]["can_act"] is False
+    assert (await client.post(f"/setor/{sid}/ambil-alih", json={"reason": "Guru berhalangan"}, headers=H(tok))).status_code == 200
+    body = {"status": "passed", "rubric_scores": {"makhraj": 5}}
+    assert (await client.post(f"/teacher/submissions/{sid}/evaluate", json=body, headers=H(ttok))).status_code == 409
+    assert (await client.post(f"/setor/{sid}/evaluate", json=body, headers=H(tok))).status_code == 200
