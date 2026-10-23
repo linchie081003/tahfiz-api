@@ -29,11 +29,27 @@ from app.models import (
 )
 
 
+TEST_DB = os.environ.get("TEST_DATABASE_URL")  # mis. postgresql+asyncpg://... untuk menjalankan seluruh tes di PostgreSQL
+
+
+def _engine(sqlite_url: str, **kw):
+    if TEST_DB:
+        from sqlalchemy.pool import NullPool
+        return create_async_engine(TEST_DB, poolclass=NullPool)
+    return create_async_engine(sqlite_url, **kw)
+
+
+async def _fresh_schema(engine):
+    async with engine.begin() as conn:
+        if TEST_DB:
+            await conn.run_sync(Base.metadata.drop_all)
+        await conn.run_sync(Base.metadata.create_all)
+
+
 @pytest_asyncio.fixture
 async def db_session():
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    engine = _engine("sqlite+aiosqlite:///:memory:")
+    await _fresh_schema(engine)
     session_factory = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
     async with session_factory() as session:
         yield session
@@ -85,9 +101,8 @@ from app.database import get_db  # noqa: E402
 
 @pytest_asyncio.fixture
 async def client():
-    engine = create_async_engine("sqlite+aiosqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False})
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    engine = _engine("sqlite+aiosqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False})
+    await _fresh_schema(engine)
     maker = async_sessionmaker(engine, expire_on_commit=False, autoflush=False)
 
     async def _get_db():
