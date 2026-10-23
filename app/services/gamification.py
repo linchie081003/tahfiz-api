@@ -3,14 +3,11 @@ from datetime import date, timedelta
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services import badges
 from app.models import BadgeDefinition, Member, MemberBadge, MemberStats, TahsinStatus, XpConfig
 
 # Data rujukan yang dibutuhkan kode; dijamin ada walau skrip seed tidak pernah dijalankan (mis. di produksi).
-REFERENCE_BADGES = [
-    ("tahsin_lulus", "Tahsin Lulus", "Menyelesaikan gerbang tahsin", "tahsin"),
-    ("juz30_progress", "Juz 30 Progress", "Melanjutkan perjalanan Juz Amma", "juz30"),
-    ("murojaah_7", "Murojaah 7 Hari", "Murojaah 7 hari berturut", "streak"),
-]
+REFERENCE_BADGES = [(c[0], c[1], c[2], c[3]) for c in badges.CATALOG]
 REFERENCE_XP = [
     ("setoran_lulus", 30, "Setoran lulus"),
     ("murojaah_done", 15, "Murojaah selesai"),
@@ -23,10 +20,13 @@ REFERENCE_XP = [
 
 async def ensure_reference_data(db: AsyncSession) -> None:
     """Idempoten: menambah lencana dan konfigurasi XP yang belum ada, tanpa mengubah yang sudah ada."""
-    have_b = {r for r in (await db.execute(select(BadgeDefinition.id))).scalars().all()}
+    have_b = {b.id: b for b in (await db.execute(select(BadgeDefinition))).scalars().all()}
     for bid, title, desc, req in REFERENCE_BADGES:
-        if bid not in have_b:
+        row = have_b.get(bid)
+        if row is None:
             db.add(BadgeDefinition(id=bid, title=title, description=desc, requirement_key=req))
+        elif (row.title, row.description, row.requirement_key) != (title, desc, req):
+            row.title, row.description, row.requirement_key = title, desc, req  # rujukan diperbarui
     have_x = {r for r in (await db.execute(select(XpConfig.activity_key))).scalars().all()}
     for key, val, label in REFERENCE_XP:
         if key not in have_x:
@@ -92,31 +92,23 @@ async def maybe_award_badges(db: AsyncSession, member_id, stats: MemberStats):
     if not member:
         return
     await ensure_reference_data(db)
-    candidates: list[tuple[str, bool]] = [
-        ("tahsin_lulus", member.tahsin_status == TahsinStatus.passed),
-        ("murojaah_7", stats.streak_days >= 7),
-    ]
-    for badge_id, ok in candidates:
-        if not ok:
-            continue
-        exists = await db.execute(
-            select(MemberBadge).where(MemberBadge.member_id == member_id, MemberBadge.badge_id == badge_id)
-        )
-        if exists.scalar_one_or_none():
-            continue
-        db.add(MemberBadge(member_id=member_id, badge_id=badge_id))
+    await badges.award(db, member, stats)
 
 
 async def list_badges(db: AsyncSession, member_id) -> list[dict]:
-    defs = (await db.execute(select(BadgeDefinition))).scalars().all()
-    got = {
-        b.badge_id: b
-        for b in (await db.execute(select(MemberBadge).where(MemberBadge.member_id == member_id))).scalars().all()
-    }
-    return [
-        {
-            "id": d.id, "title": d.title, "description": d.description, "earned": d.id in got,
-            "kind": d.requirement_key, "earned_at": got[d.id].earned_at if d.id in got else None,
-        }
-        for d in defs
-    ]
+    member = await db.get(Member, member_id)
+    stats = await ensure_member_stats(db, member_id)
+    await ensure_reference_data(db)
+    m = await badges.award(db, member, stats)  # menyusul kemajuan lama; idempoten
+    defs = {d.id: d for d in (await db.execute(select(BadgeDefinition))).scalars().all()}
+    got = {b.badge_id: b for b in (await db.execute(select(MemberBadge).where(MemberBadge.member_id == member_id))).scalars().all()}
+    out = []
+    for bid, title, desc, kind, metric, target in badges.CATALOG:
+        d = defs.get(bid)
+        earned = bid in got
+        out.append({
+            "id": bid, "title": d.title if d else title, "description": d.description if d else desc, "earned": earned, "kind": kind,
+            "earned_at": got[bid].earned_at if earned else None,
+            "progress": target if earned else min(m.get(metric, 0), target), "target": target,
+        })
+    return out
