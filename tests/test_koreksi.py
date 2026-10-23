@@ -155,3 +155,8 @@ async def test_api_switch_and_correction_flow(client):
     hist = (await client.get(f"/setor/{sid}/riwayat-penilaian", headers=H(tok))).json()
     assert [h["result"] for h in hist] == ["needs_retry", "passed"] and [h["active"] for h in hist] == [False, True]
     assert hist[1]["correction_reason"] == "Ternyata sudah lancar"
+    # daftar riwayat: setoran yang sudah dinilai muncul, bisa dikoreksi selama saklar menyala
+    lst = (await client.get("/setor/dinilai", headers=H(tok))).json()
+    assert [x["id"] for x in lst] == [sid] and lst[0]["status"] == "passed" and lst[0]["can_correct"] is True
+    await client.patch("/settings/family", headers=H(tok), json={"parent_can_evaluate": False})
+    assert (await client.get("/setor/dinilai", headers=H(tok))).json()[0]["can_correct"] is False

@@ -210,6 +210,33 @@ def _submission_out(sub: models.Submission, member: models.Member | None) -> sch
     )
 
 
+@router.get("/dinilai")
+async def judged_recent(ctx: AuthContext = Depends(require_parent), db: AsyncSession = Depends(get_db)):
+    """Setoran yang sudah dinilai (30 terbaru) untuk ditinjau atau dikoreksi orang tua."""
+    subs = (
+        await db.execute(
+            select(models.Submission)
+            .where(
+                models.Submission.family_id == ctx.family_id,
+                models.Submission.status.in_([models.SubmissionStatus.passed, models.SubmissionStatus.needs_retry, models.SubmissionStatus.not_fluent]),
+            )
+            .order_by(models.Submission.evaluated_at.desc())
+            .limit(30)
+        )
+    ).scalars().all()
+    out = []
+    for s in subs:
+        m = await db.get(models.Member, s.member_id)
+        can = await corrections.parent_may_evaluate(db, s.family_id) and (
+            not await teaching.active_link(db, s.member_id) or bool(await teaching.takeover_for(db, s.id))
+        )
+        out.append({
+            "id": s.id, "member_name": m.name if m else "", "context": s.context.value, "surah_id": s.surah_id,
+            "ayah_start": s.ayah_start, "ayah_end": s.ayah_end, "status": s.status.value, "evaluated_at": s.evaluated_at, "can_correct": can,
+        })
+    return out
+
+
 @router.get("/{submission_id}", response_model=schemas.SubmissionOut)
 async def get_submission(submission_id: uuid.UUID, ctx: AuthContext = Depends(get_current_context), db: AsyncSession = Depends(get_db)):
     """Status satu setoran untuk layar hasil. Anak hanya melihat setorannya sendiri."""
