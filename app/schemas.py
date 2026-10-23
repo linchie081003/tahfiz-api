@@ -250,6 +250,7 @@ class SubmissionOut(BaseModel):
     surah_id: int | None
     reference_text: str
     reference_text_tajweed: str | None = None
+    tahsin_point: int | None = None  # ada = ujian Pulau tahsin
     status: SubmissionStatus
     ai_status: str
     ai_insights: dict[str, Any] | None

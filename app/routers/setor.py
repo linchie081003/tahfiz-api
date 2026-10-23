@@ -12,7 +12,7 @@ from app import models, schemas
 from app.config import settings
 from app.database import get_db
 from app.deps import AuthContext, get_current_context, require_member_id, require_parent
-from app.services import corrections, escalation, setor_flow, storage, teaching
+from app.services import corrections, escalation, setor_flow, storage, tahsin_points, teaching
 from app.services import stt
 from app.services.ai_analysis import analyze_recording, unavailable
 from app.services.quran_display import ayah_range_texts
@@ -60,6 +60,10 @@ async def create_submission(
         raise HTTPException(403, "Akses ditolak")
     if context == models.SubmissionContext.ziyadah:
         await setor_flow.assert_ziyadah_setor_allowed(db, member, surah_id, ayah_start, ayah_end)
+    if context == models.SubmissionContext.tahsin and tahsin_point in (2, 3):
+        prev = (await tahsin_points._rows(db, member_id)).get(tahsin_point - 1)
+        if not (prev and prev.passed):
+            raise HTTPException(409, f"Pulau {tahsin_point - 1} harus lulus dulu sebelum ujian Pulau {tahsin_point}")
     data = await file.read()
     sub = models.Submission(
         member_id=member_id,
@@ -147,6 +151,7 @@ async def reprocess_precheck(
     return schemas.SubmissionOut(
         id=sub.id,
         context=sub.context,
+        tahsin_point=sub.tahsin_point,
         surah_id=sub.surah_id,
         reference_text=sub.reference_text,
         status=sub.status,
@@ -181,6 +186,7 @@ async def evaluator_queue(ctx: AuthContext = Depends(require_parent), db: AsyncS
             schemas.SubmissionOut(
                 id=s.id,
                 context=s.context,
+                tahsin_point=s.tahsin_point,
                 surah_id=s.surah_id,
                 reference_text=s.reference_text,
                 reference_text_tajweed=ref_tajweed,
@@ -200,6 +206,7 @@ def _submission_out(sub: models.Submission, member: models.Member | None) -> sch
     return schemas.SubmissionOut(
         id=sub.id,
         context=sub.context,
+        tahsin_point=sub.tahsin_point,
         surah_id=sub.surah_id,
         reference_text=sub.reference_text,
         status=sub.status,
@@ -247,7 +254,7 @@ async def get_submission(submission_id: uuid.UUID, ctx: AuthContext = Depends(ge
         raise HTTPException(404, "Setoran tidak ditemukan")
     member = await db.get(models.Member, sub.member_id)
     return schemas.SubmissionOut(
-        id=sub.id, context=sub.context, surah_id=sub.surah_id, reference_text=sub.reference_text, status=sub.status,
+        id=sub.id, context=sub.context, tahsin_point=sub.tahsin_point, surah_id=sub.surah_id, reference_text=sub.reference_text, status=sub.status,
         ai_status=sub.ai_status, ai_insights=sub.ai_insights, rubric_scores=sub.rubric_scores,
         recording_url=None, created_at=sub.created_at, member_name=member.name if member else None,
     )
