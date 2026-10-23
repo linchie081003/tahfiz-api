@@ -2,7 +2,7 @@ import uuid
 from datetime import date, datetime
 from typing import Any
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, model_validator
 
 from app.models import AgeMode, EvaluatorType, SubmissionContext, SubmissionStatus, TahsinStatus
 
@@ -219,11 +219,29 @@ class CorrectionIn(BaseModel):
     evaluator_notes: str | None = None
     reason: str = Field(min_length=1, max_length=500)
 
+    @model_validator(mode="after")
+    def _stars(self):
+        _check_pass_stars(self.status, self.rubric_scores)
+        return self
+
+
+MIN_STAR_PASS = 3  # bintang minimal di tiap penilaian agar boleh diluluskan (skala 1-5)
+
+
+def _check_pass_stars(status, rubric_scores):
+    if status == SubmissionStatus.passed and rubric_scores and any(v < MIN_STAR_PASS for v in rubric_scores.values()):
+        raise ValueError(f"Lulus butuh minimal {MIN_STAR_PASS} bintang di setiap penilaian")
+
 
 class EvaluateSubmissionIn(BaseModel):
     status: SubmissionStatus
     rubric_scores: dict[str, int] | None = None
     evaluator_notes: str | None = None
+
+    @model_validator(mode="after")
+    def _stars(self):
+        _check_pass_stars(self.status, self.rubric_scores)
+        return self
 
 
 class SubmissionOut(BaseModel):
@@ -256,6 +274,7 @@ class HomeOut(BaseModel):
     mission_xp: int
     mission_action: str
     tahsin_status: TahsinStatus
+    tahsin_wajib_lulus: int | None = None  # jumlah Pulau wajib (1-3) yang sudah lulus
     menu_locks: dict[str, str]
     level_progress: float
     beauty_reward: BeautyRewardOut | None = None
