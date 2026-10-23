@@ -28,7 +28,13 @@ async def lifespan(app: FastAPI):
             await session.commit()
     except Exception:  # data rujukan juga dijamin saat dipakai; jangan gagalkan startup
         pass
+    import asyncio
+
+    from app.services import stt
+
+    warm = asyncio.create_task(stt.preload())  # unduh dan muat model Whisper di latar belakang
     yield
+    warm.cancel()
 
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)

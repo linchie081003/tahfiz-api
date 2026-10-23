@@ -68,22 +68,36 @@ def _ext_from_content_type(content_type: str) -> str:
     return "wav"
 
 
-def _transcribe_faster_whisper_sync(audio: bytes, content_type: str, reference_hint: str | None = None) -> SttResult:
+def _load_whisper():
+    """Muat model sekali per proses (unduhan pertama dari Hugging Face bisa memakan waktu)."""
     global _whisper_model
-    try:
+    if _whisper_model is None:
         from faster_whisper import WhisperModel
+
+        compute = "int8" if settings.stt_whisper_device == "cpu" else "float16"
+        _whisper_model = WhisperModel(settings.stt_whisper_model, device=settings.stt_whisper_device, compute_type=compute)
+    return _whisper_model
+
+
+async def preload() -> None:
+    """Panaskan model saat server menyala agar setoran pertama tidak menunggu unduhan. Gagal tidak fatal."""
+    if not (settings.stt_enabled and (settings.stt_engine or "").lower() == "faster_whisper"):
+        return
+    try:
+        await asyncio.to_thread(_load_whisper)
+        logger.info("faster-whisper siap (%s)", settings.stt_whisper_model)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("faster-whisper belum siap: %s: %s", type(e).__name__, e)
+
+
+def _transcribe_faster_whisper_sync(audio: bytes, content_type: str, reference_hint: str | None = None) -> SttResult:
+    try:
+        _load_whisper()
     except ImportError:
         return SttResult(None, "stt_not_installed")
 
     ext = _ext_from_content_type(content_type)
     try:
-        if _whisper_model is None:
-            compute = "int8" if settings.stt_whisper_device == "cpu" else "float16"
-            _whisper_model = WhisperModel(
-                settings.stt_whisper_model,
-                device=settings.stt_whisper_device,
-                compute_type=compute,
-            )
         fd, path_str = tempfile.mkstemp(suffix=f".{ext}")
         path = Path(path_str)
         try:
