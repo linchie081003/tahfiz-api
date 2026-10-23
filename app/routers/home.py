@@ -7,7 +7,7 @@ from app import models, schemas
 from app.database import get_db
 from app.deps import AuthContext, get_current_context, optional_member_id
 from app.models import SubmissionContext, SubmissionStatus
-from app.services import gamification, murojaah, progress
+from app.services import gamification, murojaah, progress, tahsin_points
 from app.services.gamification import level_from_xp
 from app.services.reciters import beauty_audio_urls
 
@@ -169,6 +169,7 @@ async def home(
         mission_xp=mission_xp,
         mission_action=mission_action,
         tahsin_status=member.tahsin_status,
+        tahsin_wajib_lulus=sum(1 for pt in (await tahsin_points.overview(db, member_id))["points"] if pt["mandatory"] and pt["passed"]),
         menu_locks=menu_locks,
         level_progress=min(1.0, stats.xp / max(next_xp, 1)),
         beauty_reward=beauty_reward,
