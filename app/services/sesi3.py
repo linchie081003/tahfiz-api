@@ -32,7 +32,14 @@ def _aware(dt: datetime | None) -> datetime | None:
 async def responsible(db: AsyncSession, member_id: uuid.UUID) -> tuple[str, uuid.UUID | None]:
     """Satu aturan penanggung jawab: guru dengan tautan aktif, selain itu orang tua."""
     link = await teaching.active_link(db, member_id)
-    return ("teacher", link.teacher_id) if link else ("parent", None)
+    if link:
+        return "teacher", link.teacher_id
+    member = await db.get(models.Member, member_id)
+    from app.services import corrections
+
+    if member and not await corrections.parent_may_evaluate(db, member.family_id):
+        return "none", None  # tanpa guru dan kewenangan orang tua dimatikan: setoran tetap Pending Evaluation
+    return "parent", None
 
 
 async def sources(db: AsyncSession, member_id: uuid.UUID) -> list[tuple[models.Submission, str]]:

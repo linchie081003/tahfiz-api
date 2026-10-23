@@ -65,6 +65,8 @@ async def run_escalation(db: AsyncSession, now: datetime | None = None, member_i
             continue
         role, rid = await sesi3.responsible(db, sub.member_id)
         name = member.name
+        if role == "none":
+            continue
         if role == "teacher" and rid:
             if stage == 24:
                 created += await _notify(db, "teacher", rid, "pending_24", sub, "Setoran menunggu penilaian", f"Setoran {name} sudah lebih dari 24 jam menunggu penilaian.")
@@ -89,6 +91,10 @@ async def take_over(db: AsyncSession, sub: models.Submission, parent_id: uuid.UU
     link = await teaching.active_link(db, sub.member_id)
     if not link:
         raise HTTPException(409, "Tidak ada guru yang perlu digantikan")
+    from app.services import corrections
+
+    if not await corrections.parent_may_evaluate(db, sub.family_id):
+        raise HTTPException(403, "Kewenangan menilai orang tua dinonaktifkan")
     if await teaching.takeover_for(db, sub.id):
         raise HTTPException(409, "Setoran sudah diambil alih")
     t = models.EvaluationTakeover(

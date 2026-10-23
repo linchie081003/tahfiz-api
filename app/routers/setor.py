@@ -12,7 +12,7 @@ from app import models, schemas
 from app.config import settings
 from app.database import get_db
 from app.deps import AuthContext, get_current_context, require_member_id, require_parent
-from app.services import escalation, setor_flow, storage, teaching
+from app.services import corrections, escalation, setor_flow, storage, teaching
 from app.services import stt
 from app.services.ai_analysis import analyze_recording, unavailable
 from app.services.quran_display import ayah_range_texts
@@ -240,6 +240,8 @@ async def evaluate_submission(
 
     if sub.status != models.SubmissionStatus.pending_eval:
         return _submission_out(sub, member)
+    if not await corrections.parent_may_evaluate(db, sub.family_id):
+        raise HTTPException(403, "Kewenangan menilai orang tua dinonaktifkan")
     if await teaching.active_link(db, sub.member_id) and not await teaching.takeover_for(db, sub.id):
         raise HTTPException(403, "Penilaian dilakukan guru yang terhubung")
 
@@ -271,3 +273,40 @@ async def nudge_teacher(submission_id: uuid.UUID, ctx: AuthContext = Depends(req
     member = await db.get(models.Member, sub.member_id)
     sent = await escalation.nudge_teacher(db, sub, member)
     return {"ok": True, "sent": sent}
+
+
+def _eval_out(e: models.Evaluation, active_id: uuid.UUID | None) -> dict:
+    return {
+        "id": e.id, "result": e.result, "evaluator_role": e.evaluator_role, "notes": e.notes, "created_at": e.created_at,
+        "corrects_id": e.corrects_id, "correction_reason": e.correction_reason, "active": e.id == active_id, "source": e.source,
+    }
+
+
+@router.get("/{submission_id}/riwayat-penilaian")
+async def evaluation_history(submission_id: uuid.UUID, ctx: AuthContext = Depends(require_parent), db: AsyncSession = Depends(get_db)):
+    sub = await db.get(models.Submission, submission_id)
+    if not sub or sub.family_id != ctx.family_id:
+        raise HTTPException(404, "Setoran tidak ditemukan")
+    evals = await corrections.history(db, sub.id)
+    active = corrections.active_of(evals)
+    return [_eval_out(e, active.id if active else None) for e in evals]
+
+
+@router.post("/{submission_id}/koreksi")
+async def correct_evaluation(
+    submission_id: uuid.UUID, payload: schemas.CorrectionIn, ctx: AuthContext = Depends(require_parent), db: AsyncSession = Depends(get_db),
+):
+    """Koreksi atau penilaian ulang oleh orang tua. Menambah riwayat; penilaian lama tidak ditimpa."""
+    sub = await db.get(models.Submission, submission_id)
+    if not sub or sub.family_id != ctx.family_id:
+        raise HTTPException(404, "Setoran tidak ditemukan")
+    if not await corrections.parent_may_evaluate(db, sub.family_id):
+        raise HTTPException(403, "Kewenangan menilai orang tua dinonaktifkan")
+    if await teaching.active_link(db, sub.member_id) and not await teaching.takeover_for(db, sub.id):
+        raise HTTPException(403, "Penilaian dilakukan guru yang terhubung")
+    member = await db.get(models.Member, sub.member_id)
+    ev = await corrections.correct(
+        db, sub, member, evaluator_id=ctx.subject_id, evaluator_role="parent", status=payload.status,
+        notes=payload.evaluator_notes, rubric_scores=payload.rubric_scores, reason=payload.reason,
+    )
+    return {"id": ev.id, "status": sub.status.value}
