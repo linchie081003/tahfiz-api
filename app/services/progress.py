@@ -82,8 +82,29 @@ async def get_settings(db: AsyncSession, member_id: uuid.UUID) -> MemberSettings
     return (await db.execute(select(MemberSettings).where(MemberSettings.member_id == member_id))).scalar_one_or_none()
 
 
+async def planned_surah(db: AsyncSession, member_id: uuid.UUID) -> MemberSurahProgress | None:
+    """Surat yang sudah direncanakan anak (focus_surah_id) dan masih dihafal; None bila anak belum membuat rencana."""
+    ms = await get_settings(db, member_id)
+    if not ms or not ms.focus_surah_id:
+        return None
+    return (await db.execute(select(MemberSurahProgress).where(
+        MemberSurahProgress.member_id == member_id, MemberSurahProgress.surah_id == ms.focus_surah_id,
+        MemberSurahProgress.status.in_([SurahProgressStatus.in_progress, SurahProgressStatus.needs_retry])))).scalar_one_or_none()
+
+
+async def suggested_surah_id(db: AsyncSession, member_id: uuid.UUID) -> int | None:
+    """Surat berikutnya menurut urutan jalur: yang pertama belum lulus."""
+    surahs = await track_surahs(db, await effective_track(db, member_id), local=True)
+    rows = {r.surah_id: r for r in (await db.execute(select(MemberSurahProgress).where(MemberSurahProgress.member_id == member_id))).scalars().all()}
+    for s_ in surahs:
+        r = rows.get(s_.id)
+        if r is None or r.status != SurahProgressStatus.passed:
+            return s_.id
+    return None
+
+
 async def setor_plan(db: AsyncSession, member_id: uuid.UUID) -> dict | None:
-    active = await get_active_surah(db, member_id)
+    active = await planned_surah(db, member_id)  # tanpa rencana, tidak ada setoran
     if not active:
         return None
     surah = await db.get(Surah, active.surah_id)
@@ -96,21 +117,25 @@ async def setor_plan(db: AsyncSession, member_id: uuid.UUID) -> dict | None:
 
 
 async def choose_surah(db: AsyncSession, member_id: uuid.UUID, surah_id: int) -> None:
-    """Mode bebas: pilih surat yang dihafal sekarang (boleh loncat). Mode berurutan menolak."""
+    """Rencana hafalan: anak memilih surat yang akan dihafal. Mode berurutan hanya menerima surat berikutnya; mode bebas menerima surat mana saja."""
     from fastapi import HTTPException
 
     ms = await get_settings(db, member_id)
-    if not ms or ms.hafalan_order != "free":
-        raise HTTPException(409, "Urutan hafalan diatur berurutan. Minta orang tua atau guru membuka mode bebas.")
+    if not ms:
+        ms = MemberSettings(member_id=member_id, coverage="juz30", daily_ayahs=1, murajaah_strong_days=14)
+        db.add(ms)
+        await db.flush()
     surahs = await track_surahs(db, await effective_track(db, member_id), local=True)
     if surah_id not in {s_.id for s_ in surahs}:
         raise HTTPException(404, "Surat tidak ada di jalur hafalan")
     row = (await db.execute(select(MemberSurahProgress).where(MemberSurahProgress.member_id == member_id, MemberSurahProgress.surah_id == surah_id))).scalar_one_or_none()
+    if row is not None and row.status == SurahProgressStatus.passed:
+        raise HTTPException(409, "Surat ini sudah hafal. Ulangi lewat murajaah.")
+    if ms.hafalan_order != "free" and surah_id != await suggested_surah_id(db, member_id):
+        raise HTTPException(409, "Urutan hafalan diatur berurutan. Minta orang tua atau guru membuka mode bebas.")
     if row is None:
         row = MemberSurahProgress(member_id=member_id, surah_id=surah_id, status=SurahProgressStatus.in_progress, current_ayah=1)
         db.add(row)
-    elif row.status == SurahProgressStatus.passed:
-        raise HTTPException(409, "Surat ini sudah hafal. Ulangi lewat murajaah.")
     elif row.status == SurahProgressStatus.locked:
         row.status = SurahProgressStatus.in_progress
     ms.focus_surah_id = surah_id
@@ -119,7 +144,7 @@ async def choose_surah(db: AsyncSession, member_id: uuid.UUID, surah_id: int) ->
 
 async def get_active_surah(db: AsyncSession, member_id: uuid.UUID) -> MemberSurahProgress | None:
     ms = await get_settings(db, member_id)
-    if ms and ms.hafalan_order == "free" and ms.focus_surah_id:
+    if ms and ms.focus_surah_id:
         focus = (await db.execute(select(MemberSurahProgress).where(
             MemberSurahProgress.member_id == member_id, MemberSurahProgress.surah_id == ms.focus_surah_id,
             MemberSurahProgress.status.in_([SurahProgressStatus.in_progress, SurahProgressStatus.needs_retry])))).scalar_one_or_none()
@@ -139,9 +164,9 @@ async def get_active_surah(db: AsyncSession, member_id: uuid.UUID) -> MemberSura
 
 async def unlock_next_surah(db: AsyncSession, member_id: uuid.UUID, current_surah_id: int):
     ms = await get_settings(db, member_id)
+    if ms and ms.focus_surah_id == current_surah_id:
+        ms.focus_surah_id = None  # surat selesai; anak membuat rencana surat berikutnya
     if ms and ms.hafalan_order == "free":
-        if ms.focus_surah_id == current_surah_id:
-            ms.focus_surah_id = None  # surat selesai; anak memilih surat berikutnya sendiri
         return
     surahs = await track_surahs(db, await effective_track(db, member_id), local=True)
     ids = [x.id for x in surahs]
