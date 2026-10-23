@@ -101,6 +101,7 @@ class ParentChildSummaryOut(BaseModel):
     hafalan_line: str = ""
     murajaah_due: int = 0
     murajaah_surah: str = ""
+    unverified_ranges: int = 0  # hafalan lama tanpa bukti penilaian, menunggu verifikasi manual
 
 
 class ParentDashboardOut(BaseModel):
