@@ -125,6 +125,7 @@ async def test_ensure_tajweed_fills_markup(db_session, monkeypatch):
     monkeypatch.setattr(q, "fetch_tajweed_map", fake_map)
     q._TAJWEED_TRIED.discard(114)
     db_session.add(Surah(id=114, name_ar="الناس", name_id="An-Nas", ayah_count=1, juz_number=30, curriculum_order=1))
+    await db_session.flush()
     db_session.add(Ayah(surah_id=114, ayah_number=1, text_uthmani="ٱللَّهِ", text_tajweed="ٱللَّهِ", tajwid_markup={"rules": []}))
     await db_session.flush()
     await q.ensure_tajweed(db_session, 114)

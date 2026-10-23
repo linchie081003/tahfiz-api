@@ -58,6 +58,7 @@ async def test_retry_keeps_position(db_session, member_with_ziyadah):
 async def test_choose_surah_only_in_free_mode(db_session, member_with_ziyadah):
     m = member_with_ziyadah
     db_session.add(Surah(id=113, name_ar="الفلق", name_id="Al-Falaq", ayah_count=5, juz_number=30, curriculum_order=2))
+    await db_session.flush()
     db_session.add(MemberSurahProgress(member_id=m.id, surah_id=113, status=SurahProgressStatus.locked, current_ayah=1))
     db_session.add(MemberSettings(member_id=m.id, coverage="juz30", daily_ayahs=1, murajaah_strong_days=14))
     await db_session.flush()
