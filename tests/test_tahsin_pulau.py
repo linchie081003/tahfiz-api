@@ -85,3 +85,14 @@ def test_lulus_butuh_minimal_tiga_bintang_per_penilaian():
     assert schemas.EvaluateSubmissionIn(status=SubmissionStatus.needs_retry, rubric_scores={"a": 1, "b": 1}).status == SubmissionStatus.needs_retry
     with pytest.raises(ValidationError):
         schemas.CorrectionIn(status=SubmissionStatus.passed, rubric_scores={"a": 2}, reason="x")
+
+
+async def test_gamify_mengirim_batas_xp_level_dan_jenis_lencana(client):
+    from tests.helpers import H, add_child, register
+
+    reg = await register(client)
+    cid = await add_child(client, reg["access_token"])
+    child = (await client.post("/auth/child-login", json={"access_code": reg["family_access_code"], "child_id": cid, "pin": ""})).json()["access_token"]
+    g = (await client.get("/gamify", headers=H(child))).json()
+    assert g["level"] == 1 and g["xp_level_start"] == 0 and g["xp_next_level"] == 100
+    assert all("kind" in b and "earned_at" in b for b in g["badges"])
