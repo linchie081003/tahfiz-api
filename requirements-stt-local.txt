@@ -1,2 +1,4 @@
-# Whisper lokal kini sudah ada di requirements.txt; berkas ini dipertahankan agar perintah lama tetap jalan.
+# Opsional: Whisper di proses yang sama (STT_ENGINE=faster_whisper). Produksi disarankan memakai layanan terpisah (repo stt-machine).
 -r requirements.txt
+faster-whisper>=1.1.0,<1.3
+av>=12.0.0,<14.0.0
