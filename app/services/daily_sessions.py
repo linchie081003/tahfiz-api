@@ -109,7 +109,11 @@ async def mark_completed(
         await db.flush()
         return row  # aktivitas tetap tercatat, tetapi status tetap dimatikan orang tua
     done = True
-    if kind == "sesi1":
+    if row.status == NOT_APPLICABLE:
+        done = False  # sesi yang tidak berlaku tidak pernah menjadi selesai (tidak masuk KPI)
+    elif kind == "sesi3" and (activity_type != "sesi3_practice" or not row.plan):
+        done = False  # permintaan cek bukan bukti latihan; latihan harus atas sampel yang sudah dikeluarkan
+    elif kind == "sesi1":
         remaining = (
             await db.execute(
                 select(models.MurojaahItem.id)
@@ -118,7 +122,7 @@ async def mark_completed(
             )
         ).first()
         done = row.ayah_done >= murojaah.SESI1_MAX_AYAH or remaining is None
-    if done and row.status != COMPLETED:
+    if done and row.status == AVAILABLE:
         row.status, row.reason = COMPLETED, None
         row.completed_at = datetime.now(timezone.utc)
     await db.flush()
@@ -206,3 +210,50 @@ async def consistency(db: AsyncSession, member_id: uuid.UUID, start: date, end: 
     comp = sum(b["completed"] for b in per.values())
     den = comp + sum(b["missed"] for b in per.values())
     return {"from": start, "to": end, "per_kind": per, "rate": round(comp / den, 3) if den else None, "completed": comp, "applicable_closed": den}
+
+
+# ---- Sesi 3: sampel dibekukan per hari, selesai hanya lewat hasil atas sampel itu ----------------
+
+async def sesi3_plan(db: AsyncSession, member: models.Member, day: date | None = None) -> tuple[models.DailySession, list[dict]]:
+    """Sampel Sesi 3 hari ini. Dikeluarkan sekali lalu dibekukan di baris sesi agar hasil bisa dicocokkan."""
+    day = day or today()
+    await ensure_day(db, member, day)
+    row = await _row(db, member.id, day, "sesi3")
+    if row.status in (DISABLED, NOT_APPLICABLE) or row.plan:
+        return row, list(row.plan or [])
+    built = await sesi3.build(db, member.id)
+    plan = [
+        {"submission_id": str(c["submission_id"]), "surah_id": c["surah_id"], "ayah_number": c["ayah_number"], "state": c["state"], "marked": c["marked"]}
+        for c in built.get("sample", [])
+    ]
+    if plan and row.status == AVAILABLE:
+        row.plan = plan
+        await db.flush()
+    return row, plan
+
+
+async def complete_sesi3(db: AsyncSession, member: models.Member, results: list[tuple[int, int, str]]) -> tuple[models.DailySession, dict]:
+    """Selesaikan Sesi 3 hanya bila sesi berlaku, tidak dimatikan, sampel sudah dikeluarkan, dan hasil mencakup tepat sampel itu."""
+    from app.services import tanda
+
+    day = today()
+    await ensure_day(db, member, day)
+    row = await _row(db, member.id, day, "sesi3")
+    if row.status == DISABLED:
+        raise HTTPException(409, row.reason or "Sesi 3 dimatikan orang tua")
+    if row.status == NOT_APPLICABLE:
+        raise HTTPException(409, row.reason or "Sesi 3 tidak berlaku hari ini")
+    if row.status == COMPLETED:
+        raise HTTPException(409, "Sesi 3 hari ini sudah selesai")
+    if not row.plan:
+        raise HTTPException(409, "Ambil sampel Sesi 3 dulu sebelum mengirim hasil")
+    expected = {(p["surah_id"], p["ayah_number"]) for p in row.plan}
+    got = [(sid, no) for sid, no, _ in results]
+    if len(set(got)) != len(got) or set(got) != expected:
+        raise HTTPException(422, "Hasil harus mencakup tepat ayat sampel Sesi 3 hari ini")
+    for _, _, res in results:
+        if res not in tanda.RESULTS:
+            raise HTTPException(422, "Hasil harus lancar, ragu, atau lupa")
+    summary = await tanda.record_results(db, member.id, "penguatan", results)
+    row = await mark_completed(db, member, "sesi3", activity_type="sesi3_practice", activity_id=None, ayah=len(expected), day=day)
+    return row, summary

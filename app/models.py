@@ -689,6 +689,7 @@ class DailySession(Base):
     ayah_done: Mapped[int] = mapped_column(Integer, default=0)  # ayat murajaah yang sudah selesai hari itu
     decided_by: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)  # orang tua yang mematikan/menyalakan
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    plan: Mapped[list | None] = mapped_column(JSON, nullable=True)  # sesi3: sampel ayat yang dikeluarkan hari itu (dibekukan)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
