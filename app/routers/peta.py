@@ -57,7 +57,8 @@ async def peta_juz30(
     passed = 0
     active_id = None
     active_name = None
-    chosen = await progress_svc.get_active_surah(db, member_id)
+    planned_row = await progress_svc.planned_surah(db, member_id)
+    suggested = await progress_svc.suggested_surah_id(db, member_id)
     unlock_hint = None
     parent_open = ctx.role == "parent"
 
@@ -95,12 +96,13 @@ async def peta_juz30(
                 ayah_count=s.ayah_count,
                 status=status,
                 curriculum_order=s.curriculum_order,
-                selectable=order == "free" and not (pr and pr.status == models.SurahProgressStatus.passed)
-                and not (chosen and chosen.surah_id == s.id),
+                selectable=not (pr and pr.status == models.SurahProgressStatus.passed)
+                and not (planned_row and planned_row.surah_id == s.id)
+                and (order == "free" or s.id == suggested),
             )
         )
-    if chosen and order == "free":  # surat pilihan anak (mode bebas) didahulukan; selain itu yang pertama aktif
-        cs = next((x for x in surahs if x.id == chosen.surah_id), None)
+    if planned_row:  # surat rencana anak anak (mode bebas) didahulukan; selain itu yang pertama aktif
+        cs = next((x for x in surahs if x.id == planned_row.surah_id), None)
         if cs:
             active_id, active_name = cs.id, cs.name_id
     if active_id and not parent_open:
@@ -121,6 +123,8 @@ async def peta_juz30(
         nodes=nodes,
         hafalan_order=order,
         plan=schemas.SetorPlanOut(**plan) if plan else None,
+        planned=planned_row is not None,
+        suggested_surah_id=suggested,
     )
 
 

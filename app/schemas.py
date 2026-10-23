@@ -286,6 +286,8 @@ class PetaOut(BaseModel):
     nodes: list[PetaNodeOut]
     hafalan_order: str = "sequential"
     plan: SetorPlanOut | None = None
+    planned: bool = False  # anak sudah membuat rencana surat yang dihafal
+    suggested_surah_id: int | None = None
 
 
 class MurojaahItemOut(BaseModel):

@@ -112,14 +112,18 @@ async def test_peta_plan_and_pilih_surat_via_api(client):
     await client.put(f"/members/{cid}/settings", headers=H(tok), json={"parallel_hafalan": True, "coverage": "all", "hafalan_track": "mushaf", "daily_ayahs": 3})
 
     peta = (await client.get("/peta/juz/30", headers=H(child))).json()
-    assert peta["hafalan_order"] == "sequential" and peta["active_surah_id"] == 1
-    assert peta["plan"] == {"surah_id": 1, "name_id": "Al-Fatihah", "ayah_count": 7, "ayah_start": 1, "ayah_end": 7, "mode": "seluruh_surat", "done_ayahs": 0}
-    assert not any(n["selectable"] for n in peta["nodes"])
+    assert peta["hafalan_order"] == "sequential" and peta["planned"] is False and peta["plan"] is None  # belum ada rencana
+    assert peta["suggested_surah_id"] == 1
+    assert [n["surah_id"] for n in peta["nodes"] if n["selectable"]] == [1]  # berurutan: hanya surat berikutnya
     assert (await client.post("/peta/pilih", json={"surah_id": 2}, headers=H(child))).status_code == 409
+    assert (await client.post("/peta/pilih", json={"surah_id": 1}, headers=H(child))).status_code == 200
+    peta = (await client.get("/peta/juz/30", headers=H(child))).json()
+    assert peta["planned"] is True and peta["active_surah_id"] == 1
+    assert peta["plan"] == {"surah_id": 1, "name_id": "Al-Fatihah", "ayah_count": 7, "ayah_start": 1, "ayah_end": 7, "mode": "seluruh_surat", "done_ayahs": 0}
 
     await client.put(f"/members/{cid}/settings", headers=H(tok), json={"hafalan_order": "free"})
     peta = (await client.get("/peta/juz/30", headers=H(child))).json()
-    assert [n["surah_id"] for n in peta["nodes"] if n["selectable"]] == [2, 114]  # surat aktif tidak perlu dipilih lagi
+    assert [n["surah_id"] for n in peta["nodes"] if n["selectable"]] == [2, 114]  # surat rencana tidak perlu dipilih lagi
     r = await client.post("/peta/pilih", json={"surah_id": 2}, headers=H(child))
     assert r.status_code == 200
     peta = (await client.get("/peta/juz/30", headers=H(child))).json()
