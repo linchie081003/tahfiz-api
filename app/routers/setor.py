@@ -12,7 +12,7 @@ from app import models, schemas
 from app.config import settings
 from app.database import get_db
 from app.deps import AuthContext, get_current_context, require_member_id, require_parent
-from app.services import corrections, escalation, setor_flow, storage, tahsin_points, teaching
+from app.services import corrections, daily_sessions, escalation, hafalan_ranges, setor_flow, storage, tahsin_points, teaching
 from app.services import stt
 from app.services.ai_analysis import analyze_recording, unavailable
 from app.services.quran_display import ayah_range_texts
@@ -91,6 +91,8 @@ async def create_submission(
         sub.recording_key = key
     if context == models.SubmissionContext.tahsin and member.tahsin_status != models.TahsinStatus.passed:
         member.tahsin_status = models.TahsinStatus.pending_eval
+    if context == models.SubmissionContext.ziyadah:
+        await daily_sessions.mark_completed(db, member, "sesi2", activity_type="submission", activity_id=sub.id)
     await _process_ai_inline(db, sub, data, file.content_type or "audio/webm")
     return schemas.SubmissionCreateOut(id=sub.id, status=sub.status, ai_status=sub.ai_status)
 
@@ -311,10 +313,11 @@ async def nudge_teacher(submission_id: uuid.UUID, ctx: AuthContext = Depends(req
     return {"ok": True, "sent": sent}
 
 
-def _eval_out(e: models.Evaluation, active_id: uuid.UUID | None) -> dict:
+def _eval_out(e: models.Evaluation, active_ids: set[uuid.UUID]) -> dict:
     return {
         "id": e.id, "result": e.result, "evaluator_role": e.evaluator_role, "notes": e.notes, "created_at": e.created_at,
-        "corrects_id": e.corrects_id, "correction_reason": e.correction_reason, "active": e.id == active_id, "source": e.source,
+        "corrects_id": e.corrects_id, "correction_reason": e.correction_reason, "active": e.id in active_ids, "source": e.source,
+        "ayah_start": e.ayah_start, "ayah_end": e.ayah_end,
     }
 
 
@@ -324,8 +327,17 @@ async def evaluation_history(submission_id: uuid.UUID, ctx: AuthContext = Depend
     if not sub or sub.family_id != ctx.family_id:
         raise HTTPException(404, "Setoran tidak ditemukan")
     evals = await corrections.history(db, sub.id)
-    active = corrections.active_of(evals)
-    return [_eval_out(e, active.id if active else None) for e in evals]
+    active = corrections.active_ids(evals)
+    return [_eval_out(e, active) for e in evals]
+
+
+@router.get("/{submission_id}/rentang")
+async def submission_ranges(submission_id: uuid.UUID, ctx: AuthContext = Depends(get_current_context), db: AsyncSession = Depends(get_db)):
+    """Status per rentang ayat pada satu setoran: bagian yang sudah dinilai dan sisa yang menunggu."""
+    sub = await db.get(models.Submission, submission_id)
+    if not sub or sub.family_id != ctx.family_id or (ctx.role == "child" and sub.member_id != ctx.member_id):
+        raise HTTPException(404, "Setoran tidak ditemukan")
+    return {"status": sub.status.value, "ranges": hafalan_ranges.range_status(sub, await corrections.history(db, sub.id))}
 
 
 @router.post("/{submission_id}/koreksi")
@@ -344,5 +356,6 @@ async def correct_evaluation(
     ev = await corrections.correct(
         db, sub, member, evaluator_id=ctx.subject_id, evaluator_role="parent", status=payload.status,
         notes=payload.evaluator_notes, rubric_scores=payload.rubric_scores, reason=payload.reason,
+        ayah_start=payload.ayah_start, ayah_end=payload.ayah_end,
     )
     return {"id": ev.id, "status": sub.status.value}

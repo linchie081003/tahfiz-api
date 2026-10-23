@@ -215,6 +215,8 @@ class SubmissionCreateOut(BaseModel):
 
 class CorrectionIn(BaseModel):
     status: SubmissionStatus
+    ayah_start: int | None = Field(None, ge=1)  # wajib bila setoran dinilai per rentang
+    ayah_end: int | None = Field(None, ge=1)
     rubric_scores: dict[str, int] | None = None
     evaluator_notes: str | None = None
     reason: str = Field(min_length=1, max_length=500)
@@ -233,14 +235,37 @@ def _check_pass_stars(status, rubric_scores):
         raise ValueError(f"Lulus butuh minimal {MIN_STAR_PASS} bintang di setiap penilaian")
 
 
-class EvaluateSubmissionIn(BaseModel):
+class EvaluationPart(BaseModel):
+    """Satu rentang ayat yang dinilai pada setoran ziyadah (penilaian parsial)."""
+
+    ayah_start: int = Field(ge=1)
+    ayah_end: int = Field(ge=1)
     status: SubmissionStatus
+
+    @model_validator(mode="after")
+    def _ok(self):
+        if self.ayah_end < self.ayah_start:
+            raise ValueError("Rentang ayat tidak valid")
+        if self.status not in (SubmissionStatus.passed, SubmissionStatus.needs_retry, SubmissionStatus.not_fluent):
+            raise ValueError("Hasil rentang harus lulus, perlu diulang, atau belum lancar")
+        return self
+
+
+class EvaluateSubmissionIn(BaseModel):
+    status: SubmissionStatus | None = None  # hasil seluruh setoran; kosong bila memakai parts
+    parts: list[EvaluationPart] | None = Field(None, min_length=1, max_length=40)
     rubric_scores: dict[str, int] | None = None
     evaluator_notes: str | None = None
 
     @model_validator(mode="after")
     def _stars(self):
-        _check_pass_stars(self.status, self.rubric_scores)
+        if self.parts:
+            if any(p.status == SubmissionStatus.passed for p in self.parts):
+                _check_pass_stars(SubmissionStatus.passed, self.rubric_scores)
+        elif self.status is None:
+            raise ValueError("Isi status atau daftar rentang yang dinilai")
+        else:
+            _check_pass_stars(self.status, self.rubric_scores)
         return self
 
 

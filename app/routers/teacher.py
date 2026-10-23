@@ -278,10 +278,11 @@ async def evaluation_history(submission_id: uuid.UUID, t: models.Teacher = Depen
         raise HTTPException(404, "Setoran tidak ditemukan")
     await _student_link(db, t, sub.member_id)
     evals = await corrections.history(db, sub.id)
-    active = corrections.active_of(evals)
+    active = corrections.active_ids(evals)
     return [
         {"id": e.id, "result": e.result, "evaluator_role": e.evaluator_role, "notes": e.notes, "created_at": e.created_at,
-         "corrects_id": e.corrects_id, "correction_reason": e.correction_reason, "active": bool(active and e.id == active.id)}
+         "corrects_id": e.corrects_id, "correction_reason": e.correction_reason, "active": e.id in active,
+         "ayah_start": e.ayah_start, "ayah_end": e.ayah_end}
         for e in evals
     ]
 
@@ -299,6 +300,7 @@ async def correct_evaluation(submission_id: uuid.UUID, payload: schemas.Correcti
     ev = await corrections.correct(
         db, sub, member, evaluator_id=t.id, evaluator_role="teacher", status=payload.status,
         notes=payload.evaluator_notes, rubric_scores=payload.rubric_scores, reason=payload.reason,
+        ayah_start=payload.ayah_start, ayah_end=payload.ayah_end,
     )
     return {"id": ev.id, "status": sub.status.value}
 

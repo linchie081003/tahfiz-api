@@ -517,6 +517,9 @@ class Evaluation(Base):
     corrects_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("evaluations.id"), nullable=True)
     correction_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     source: Mapped[str] = mapped_column(String(16), default="live")  # live | migration
+    # Rentang ayat yang benar-benar dinilai. Kosong = seluruh setoran (data lama / Tahsin).
+    ayah_start: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    ayah_end: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -641,3 +644,30 @@ class EvaluationTakeover(Base):
     reason: Mapped[str] = mapped_column(Text)
     created_by: Mapped[uuid.UUID] = mapped_column(Uuid)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class DailySession(Base):
+    """Catatan harian per anak per jenis sesi: bukti sesi mana yang berlaku dan bagaimana hasilnya.
+
+    Status: available (berlaku, belum selesai) | completed | missed (hari ditutup tanpa selesai) |
+    not_applicable (tidak berlaku hari itu, ada alasan) | disabled_manually (dimatikan orang tua, ada alasan).
+    KPI konsistensi = completed / (completed + missed); not_applicable dan disabled_manually tidak dihitung.
+    """
+
+    __tablename__ = "daily_sessions"
+    __table_args__ = (UniqueConstraint("member_id", "day", "kind", name="uq_daily_session_member_day_kind"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    member_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("members.id"), index=True)
+    family_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("families.id"), index=True)
+    day: Mapped[date] = mapped_column(Date, index=True)
+    kind: Mapped[str] = mapped_column(String(8))  # sesi1 | sesi2 | sesi3
+    status: Mapped[str] = mapped_column(String(20), default="available")
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)  # alasan tidak berlaku / dimatikan
+    activity_type: Mapped[str | None] = mapped_column(String(24), nullable=True)  # murojaah_item | submission | sesi3_request
+    activity_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    ayah_done: Mapped[int] = mapped_column(Integer, default=0)  # ayat murajaah yang sudah selesai hari itu
+    decided_by: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)  # orang tua yang mematikan/menyalakan
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

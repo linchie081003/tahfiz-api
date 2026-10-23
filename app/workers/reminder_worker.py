@@ -7,6 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from app.database import AsyncSessionLocal
+from app.services import daily_sessions
 from app.services.escalation import run_escalation
 from app.services.reminders import run_reminders
 
@@ -16,8 +17,15 @@ log = logging.getLogger("reminder_worker")
 
 async def main():
     log.info("Reminder worker berjalan (cek tiap 60 detik)")
+    last_day = None
     while True:
         try:
+            if last_day != daily_sessions.today():
+                async with AsyncSessionLocal() as db:
+                    stats_day = await daily_sessions.run_daily(db)
+                    await db.commit()
+                last_day = daily_sessions.today()
+                log.info("sesi harian: %s", stats_day)
             async with AsyncSessionLocal() as db:
                 stats = await run_reminders(db)
                 await db.commit()

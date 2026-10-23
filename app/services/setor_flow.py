@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import models, schemas
 from app.models import SubmissionContext, SubmissionStatus, SurahProgressStatus, TahsinStatus
-from app.services import gamification, hafalan_ranges, murojaah, progress, sesi3, tahsin_points
+from app.services import corrections, gamification, hafalan_ranges, murojaah, progress, sesi3, tahsin_points
 
 
 async def assert_ziyadah_setor_allowed(
@@ -72,6 +72,28 @@ async def load_submission_for_evaluate(
     return sub
 
 
+def _normalize_parts(sub: models.Submission, payload: schemas.EvaluateSubmissionIn, already: set[int]) -> list[schemas.EvaluationPart]:
+    """Daftar rentang yang dinilai. Tanpa parts: seluruh setoran dengan satu hasil."""
+    b = hafalan_ranges.sub_bounds(sub)
+    if not payload.parts:
+        if b is None or sub.context != SubmissionContext.ziyadah:
+            return []
+        return [schemas.EvaluationPart(ayah_start=b[0], ayah_end=b[1], status=payload.status)]
+    if sub.context != SubmissionContext.ziyadah or b is None:
+        raise HTTPException(422, "Penilaian per rentang hanya untuk setoran ziyadah")
+    seen: set[int] = set()
+    for p in sorted(payload.parts, key=lambda x: x.ayah_start):
+        if p.ayah_start < b[0] or p.ayah_end > b[1]:
+            raise HTTPException(422, f"Rentang {p.ayah_start}-{p.ayah_end} di luar setoran ({b[0]}-{b[1]})")
+        span = set(range(p.ayah_start, p.ayah_end + 1))
+        if span & seen:
+            raise HTTPException(422, "Rentang yang dinilai tidak boleh tumpang tindih")
+        if span & already:
+            raise HTTPException(409, "Sebagian ayat sudah dinilai; gunakan koreksi untuk mengubahnya")
+        seen |= span
+    return sorted(payload.parts, key=lambda x: x.ayah_start)
+
+
 async def apply_submission_evaluation(
     db: AsyncSession,
     sub: models.Submission,
@@ -81,23 +103,55 @@ async def apply_submission_evaluation(
     evaluator_id: uuid.UUID | None = None,
     evaluator_role: str = "parent",
 ) -> None:
-    """Side effects for first-time evaluation (caller must ensure status is pending_eval)."""
-    sub.status = payload.status
+    """Penilaian pertama atau lanjutan (caller memastikan status pending_eval).
+
+    Setoran ziyadah dinilai per rentang ayat: tiap rentang menjadi satu baris Evaluation (riwayat tidak ditimpa),
+    hanya rentang lulus yang menjadi MemorizedRange, dan ayat yang belum dinilai tetap menunggu.
+    """
+    now = datetime.now(timezone.utc)
+    ziyadah_ranged = sub.context == SubmissionContext.ziyadah and sub.surah_id and hafalan_ranges.sub_bounds(sub)
+    if payload.parts and not ziyadah_ranged:
+        raise HTTPException(422, "Penilaian per rentang hanya untuk setoran ziyadah")
+    if not payload.parts and payload.status is None:
+        raise HTTPException(422, "Isi status penilaian")
     sub.rubric_scores = payload.rubric_scores
     sub.evaluator_notes = payload.evaluator_notes
-    sub.evaluated_at = datetime.now(timezone.utc)
+
+    if ziyadah_ranged:
+        prior = await corrections.history(db, sub.id)
+        parts = _normalize_parts(sub, payload, hafalan_ranges.evaluated_ayahs(prior))
+        ever_passed = any(e.result == "passed" for e in prior)
+        any_pass = any_fail = False
+        for p in parts:
+            await hafalan_ranges.record_evaluation(
+                db, sub, evaluator_id=evaluator_id, evaluator_role=evaluator_role, result=p.status.value,
+                notes=payload.evaluator_notes, rubric_scores=payload.rubric_scores, ayah_start=p.ayah_start, ayah_end=p.ayah_end,
+            )
+            if p.status == SubmissionStatus.passed:
+                any_pass = True
+                rng = await hafalan_ranges.record_passed_range(db, sub, ayah_start=p.ayah_start, ayah_end=p.ayah_end)
+                if rng:
+                    await murojaah.schedule_for_range(db, rng)
+            else:
+                any_fail = True
+        evals = await corrections.history(db, sub.id)
+        final = hafalan_ranges.overall_status(sub, evals)
+        if final is not None:
+            sub.status, sub.evaluated_at = final, now  # semua ayat sudah dinilai
+        # jika belum semua ayat dinilai, status tetap pending_eval dan sisanya menunggu
+        if any_fail:
+            await sesi3.create_request(db, member, sub.id, "correction")
+        await progress_after_ziyadah(db, member, sub, any_pass=any_pass, any_fail=any_fail)
+        if any_pass and not ever_passed:
+            await gamification.add_xp(db, member.id, "setoran_lulus")
+        return
+
+    sub.status = payload.status
+    sub.evaluated_at = now
     await hafalan_ranges.record_evaluation(
         db, sub, evaluator_id=evaluator_id, evaluator_role=evaluator_role,
         result=payload.status.value, notes=payload.evaluator_notes, rubric_scores=payload.rubric_scores,
     )
-    if sub.context == SubmissionContext.ziyadah and payload.status != SubmissionStatus.passed and sub.surah_id:
-        # evaluasi meminta perbaikan: Sesi 3 menawarkan cek lanjutan untuk rentang ini
-        await sesi3.create_request(db, member, sub.id, "correction")
-    if sub.context == SubmissionContext.ziyadah and payload.status == SubmissionStatus.passed:
-        rng = await hafalan_ranges.record_passed_range(db, sub)
-        if rng:
-            await murojaah.schedule_for_range(db, rng)
-
     if sub.context == SubmissionContext.tahsin:
         if sub.tahsin_point:
             # Latihan per Pulau: kelulusan dicatat ke Pulau itu; gerbang Hafalan terbuka bila Pulau 1-3 lulus semua.
@@ -125,28 +179,35 @@ async def apply_submission_evaluation(
             )
         )
 
-    if sub.context == SubmissionContext.ziyadah and sub.surah_id:
-        prog = (
-            await db.execute(
-                select(models.MemberSurahProgress).where(
-                    models.MemberSurahProgress.member_id == member.id,
-                    models.MemberSurahProgress.surah_id == sub.surah_id,
-                )
+
+async def progress_after_ziyadah(db: AsyncSession, member: models.Member, sub: models.Submission, *, any_pass: bool, any_fail: bool) -> None:
+    """Perbarui kemajuan surat dari rentang lulus: ayat aktif = ayat pertama yang belum tertutup."""
+    prog = (
+        await db.execute(
+            select(models.MemberSurahProgress).where(
+                models.MemberSurahProgress.member_id == member.id,
+                models.MemberSurahProgress.surah_id == sub.surah_id,
             )
-        ).scalar_one_or_none()
-        if prog:
-            ayah_end = sub.ayah_end if sub.ayah_end is not None else sub.ayah_start
-            if payload.status == SubmissionStatus.passed:
-                surah = await db.get(models.Surah, sub.surah_id)
-                total = surah.ayah_count if surah else None
-                if ayah_end is not None:
-                    prog.current_ayah = max(prog.current_ayah, min(ayah_end + 1, total or ayah_end + 1))
-                if total is not None and ayah_end is not None and ayah_end >= total:
-                    # Seluruh ayat sudah dihafal: surat lulus dan murajaah mulai dijadwalkan.
-                    prog.status = SurahProgressStatus.passed
-                    await progress.unlock_next_surah(db, member.id, sub.surah_id)
-                else:
-                    prog.status = SurahProgressStatus.in_progress  # lanjut ke ayat berikutnya
-                await gamification.add_xp(db, member.id, "setoran_lulus")
-            else:
-                prog.status = SurahProgressStatus.needs_retry
+        )
+    ).scalar_one_or_none()
+    if not prog:
+        return
+    surah = await db.get(models.Surah, sub.surah_id)
+    total = surah.ayah_count if surah else None
+    if any_pass:
+        covered = await hafalan_ranges.covered_ayahs(db, member.id, sub.surah_id)
+        nxt = prog.current_ayah or 1  # ayat aktif = ayat pertama sejak posisi sekarang yang belum tertutup
+        while nxt in covered:
+            nxt += 1
+        reached_end = total is not None and nxt > total
+        if total is not None:
+            nxt = min(nxt, total)
+        prog.current_ayah = nxt
+        if reached_end:
+            # Seluruh ayat sudah dihafal: surat lulus dan murajaah mulai dijadwalkan.
+            prog.status = SurahProgressStatus.passed
+            await progress.unlock_next_surah(db, member.id, sub.surah_id)
+        else:
+            prog.status = SurahProgressStatus.in_progress  # lanjut ke ayat berikutnya
+    elif any_fail:
+        prog.status = SurahProgressStatus.needs_retry
