@@ -261,6 +261,8 @@ async def evaluate(submission_id: uuid.UUID, payload: schemas.EvaluateSubmission
     member = await db.get(models.Member, sub.member_id)
     if sub.status != models.SubmissionStatus.pending_eval:
         return {"status": sub.status.value}
+    if await teaching.takeover_for(db, sub.id):
+        raise HTTPException(409, "Setoran ini diambil alih orang tua")
     await setor_flow.apply_submission_evaluation(db, sub, member, payload, evaluator_id=t.id, evaluator_role="teacher")
     if payload.evaluator_notes:
         db.add(models.TeacherMessage(teacher_id=t.id, family_id=sub.family_id, member_id=sub.member_id,

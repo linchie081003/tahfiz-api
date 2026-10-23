@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,7 +12,7 @@ from app import models, schemas
 from app.config import settings
 from app.database import get_db
 from app.deps import AuthContext, get_current_context, require_member_id, require_parent
-from app.services import setor_flow, storage, teaching
+from app.services import escalation, setor_flow, storage, teaching
 from app.services import stt
 from app.services.ai_analysis import analyze_recording, unavailable
 from app.services.quran_display import ayah_range_texts
@@ -239,8 +240,34 @@ async def evaluate_submission(
 
     if sub.status != models.SubmissionStatus.pending_eval:
         return _submission_out(sub, member)
-    if await teaching.active_link(db, sub.member_id):
+    if await teaching.active_link(db, sub.member_id) and not await teaching.takeover_for(db, sub.id):
         raise HTTPException(403, "Penilaian dilakukan guru yang terhubung")
 
     await setor_flow.apply_submission_evaluation(db, sub, member, payload, evaluator_id=ctx.subject_id, evaluator_role="parent")
     return _submission_out(sub, member)
+
+
+class TakeoverIn(BaseModel):
+    reason: str = Field(min_length=1, max_length=500)
+
+
+@router.post("/{submission_id}/ambil-alih")
+async def take_over_evaluation(
+    submission_id: uuid.UUID, payload: TakeoverIn, ctx: AuthContext = Depends(require_parent), db: AsyncSession = Depends(get_db),
+):
+    """Pengambilalihan manual oleh orang tua. Tidak pernah otomatis; mencatat penilai lama, baru, waktu, dan alasan."""
+    sub = await db.get(models.Submission, submission_id)
+    if not sub or sub.family_id != ctx.family_id:
+        raise HTTPException(404, "Setoran tidak ditemukan")
+    await escalation.take_over(db, sub, ctx.subject_id, payload.reason)
+    return {"ok": True}
+
+
+@router.post("/{submission_id}/ingatkan-guru")
+async def nudge_teacher(submission_id: uuid.UUID, ctx: AuthContext = Depends(require_parent), db: AsyncSession = Depends(get_db)):
+    sub = await db.get(models.Submission, submission_id)
+    if not sub or sub.family_id != ctx.family_id:
+        raise HTTPException(404, "Setoran tidak ditemukan")
+    member = await db.get(models.Member, sub.member_id)
+    sent = await escalation.nudge_teacher(db, sub, member)
+    return {"ok": True, "sent": sent}
