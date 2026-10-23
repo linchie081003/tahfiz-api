@@ -49,6 +49,7 @@ async def create_submission(
     surah_id: int | None = Form(None),
     ayah_start: int | None = Form(None),
     ayah_end: int | None = Form(None),
+    tahsin_point: int | None = Form(None),
     file: UploadFile = File(...),
     member_id: uuid.UUID = Depends(require_member_id),
     ctx: AuthContext = Depends(get_current_context),
@@ -68,6 +69,7 @@ async def create_submission(
         ayah_start=ayah_start,
         ayah_end=ayah_end,
         reference_text=reference_text,
+        tahsin_point=tahsin_point if context == models.SubmissionContext.tahsin and tahsin_point and 1 <= tahsin_point <= 9 else None,
         recording_key="pending",
         status=models.SubmissionStatus.pending_ai,
         ai_status="pending",
@@ -83,7 +85,7 @@ async def create_submission(
     else:
         key = storage.upload_recording(data, file.content_type or "audio/webm", ctx.family_id, sub.id)
         sub.recording_key = key
-    if context == models.SubmissionContext.tahsin:
+    if context == models.SubmissionContext.tahsin and member.tahsin_status != models.TahsinStatus.passed:
         member.tahsin_status = models.TahsinStatus.pending_eval
     await _process_ai_inline(db, sub, data, file.content_type or "audio/webm")
     return schemas.SubmissionCreateOut(id=sub.id, status=sub.status, ai_status=sub.ai_status)
