@@ -25,6 +25,7 @@ class MemberSettingsOut(BaseModel):
     set_by: str = "parent"
     parallel_hafalan: bool = False
     hafalan_track: str = "juz30"
+    hafalan_order: str = "sequential"
 
 
 class MemberSettingsIn(BaseModel):
@@ -33,6 +34,7 @@ class MemberSettingsIn(BaseModel):
     murajaah_strong_days: int | None = None
     parallel_hafalan: bool | None = None
     hafalan_track: Literal["juz30", "mushaf"] | None = None
+    hafalan_order: Literal["sequential", "free"] | None = None
 
 
 class PointResultIn(BaseModel):
@@ -64,7 +66,7 @@ async def read_member_settings(
     return MemberSettingsOut(
         coverage=row.coverage, daily_ayahs=row.daily_ayahs,
         murajaah_strong_days=row.murajaah_strong_days, set_by=row.set_by,
-        parallel_hafalan=bool(row.parallel_hafalan), hafalan_track=row.hafalan_track or "juz30",
+        parallel_hafalan=bool(row.parallel_hafalan), hafalan_track=row.hafalan_track or "juz30", hafalan_order=row.hafalan_order or "sequential",
     )
 
 
@@ -92,19 +94,21 @@ async def update_member_settings(
         row = models.MemberSettings(member_id=member_id, coverage="juz30", daily_ayahs=1,
                                     murajaah_strong_days=14, set_by="parent")
         db.add(row)
-    for field in ("coverage", "daily_ayahs", "murajaah_strong_days", "parallel_hafalan", "hafalan_track"):
+    for field in ("coverage", "daily_ayahs", "murajaah_strong_days", "parallel_hafalan", "hafalan_track", "hafalan_order"):
         value = getattr(payload, field)
         if value is not None:
             setattr(row, field, value)
     row.set_by = "parent"
     await db.flush()
-    if payload.coverage is not None or payload.hafalan_track is not None:
+    if payload.hafalan_order == "sequential":
+        row.focus_surah_id = None
+    if payload.coverage is not None or payload.hafalan_track is not None or payload.hafalan_order == "sequential":
         await progress.set_track(db, member_id, await progress.effective_track(db, member_id))
         await db.refresh(row)
     return MemberSettingsOut(
         coverage=row.coverage, daily_ayahs=row.daily_ayahs,
         murajaah_strong_days=row.murajaah_strong_days, set_by=row.set_by,
-        parallel_hafalan=bool(row.parallel_hafalan), hafalan_track=row.hafalan_track or "juz30",
+        parallel_hafalan=bool(row.parallel_hafalan), hafalan_track=row.hafalan_track or "juz30", hafalan_order=row.hafalan_order or "sequential",
     )
 
 

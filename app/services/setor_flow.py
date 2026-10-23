@@ -110,12 +110,17 @@ async def apply_submission_evaluation(
         if prog:
             ayah_end = sub.ayah_end if sub.ayah_end is not None else sub.ayah_start
             if payload.status == SubmissionStatus.passed:
-                prog.status = SurahProgressStatus.passed
                 surah = await db.get(models.Surah, sub.surah_id)
-                if surah and ayah_end is not None:
-                    prog.current_ayah = min(ayah_end + 1, surah.ayah_count)
-                await progress.unlock_next_surah(db, member.id, sub.surah_id)
-                await murojaah.schedule_for_passed_surah(db, member.id, sub.surah_id)
+                total = surah.ayah_count if surah else None
+                if ayah_end is not None:
+                    prog.current_ayah = max(prog.current_ayah, min(ayah_end + 1, total or ayah_end + 1))
+                if total is not None and ayah_end is not None and ayah_end >= total:
+                    # Seluruh ayat sudah dihafal: surat lulus dan murajaah mulai dijadwalkan.
+                    prog.status = SurahProgressStatus.passed
+                    await progress.unlock_next_surah(db, member.id, sub.surah_id)
+                    await murojaah.schedule_for_passed_surah(db, member.id, sub.surah_id)
+                else:
+                    prog.status = SurahProgressStatus.in_progress  # lanjut ke ayat berikutnya
                 await gamification.add_xp(db, member.id, "setoran_lulus")
             else:
                 prog.status = SurahProgressStatus.needs_retry

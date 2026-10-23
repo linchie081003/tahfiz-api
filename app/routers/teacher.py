@@ -291,7 +291,7 @@ async def student_settings(member_id: uuid.UUID, t: models.Teacher = Depends(req
     await _student_link(db, t, member_id)
     row = await get_member_settings(db, member_id)
     return MemberSettingsOut(coverage=row.coverage, daily_ayahs=row.daily_ayahs, murajaah_strong_days=row.murajaah_strong_days,
-                             set_by=row.set_by, parallel_hafalan=bool(row.parallel_hafalan), hafalan_track=row.hafalan_track or "juz30") if row else MemberSettingsOut()
+                             set_by=row.set_by, parallel_hafalan=bool(row.parallel_hafalan), hafalan_track=row.hafalan_track or "juz30", hafalan_order=row.hafalan_order or "sequential") if row else MemberSettingsOut()
 
 
 @router.put("/students/{member_id}/settings", response_model=MemberSettingsOut)
@@ -310,17 +310,19 @@ async def set_student_settings(member_id: uuid.UUID, payload: MemberSettingsIn,
     if not row:
         row = models.MemberSettings(member_id=member_id, coverage="juz30", daily_ayahs=1, murajaah_strong_days=14)
         db.add(row)
-    for f in ("coverage", "daily_ayahs", "murajaah_strong_days", "parallel_hafalan", "hafalan_track"):
+    for f in ("coverage", "daily_ayahs", "murajaah_strong_days", "parallel_hafalan", "hafalan_track", "hafalan_order"):
         v = getattr(payload, f)
         if v is not None:
             setattr(row, f, v)
     row.set_by = "teacher"
     await db.flush()
-    if payload.coverage is not None or payload.hafalan_track is not None:
+    if payload.hafalan_order == "sequential":
+        row.focus_surah_id = None
+    if payload.coverage is not None or payload.hafalan_track is not None or payload.hafalan_order == "sequential":
         from app.services import progress as _progress
         await _progress.set_track(db, member_id, await _progress.effective_track(db, member_id))
         await db.refresh(row)
-    return MemberSettingsOut(coverage=row.coverage, daily_ayahs=row.daily_ayahs, murajaah_strong_days=row.murajaah_strong_days, set_by="teacher", parallel_hafalan=bool(row.parallel_hafalan), hafalan_track=row.hafalan_track or "juz30")
+    return MemberSettingsOut(coverage=row.coverage, daily_ayahs=row.daily_ayahs, murajaah_strong_days=row.murajaah_strong_days, set_by="teacher", parallel_hafalan=bool(row.parallel_hafalan), hafalan_track=row.hafalan_track or "juz30", hafalan_order=row.hafalan_order or "sequential")
 
 
 @router.get("/students/{member_id}/placement")

@@ -260,6 +260,19 @@ class PetaNodeOut(BaseModel):
     ayah_count: int
     status: str
     curriculum_order: int
+    selectable: bool = False  # mode bebas: surat ini boleh dipilih untuk dihafal sekarang
+
+
+class SetorPlanOut(BaseModel):
+    """Rencana setoran berikutnya: surat pendek sekaligus utuh, surat panjang sesuai target harian."""
+
+    surah_id: int
+    name_id: str
+    ayah_count: int
+    ayah_start: int
+    ayah_end: int
+    mode: str  # seluruh_surat | target_harian
+    done_ayahs: int
 
 
 class PetaOut(BaseModel):
@@ -271,6 +284,8 @@ class PetaOut(BaseModel):
     active_surah_name: str | None
     unlock_hint: str | None
     nodes: list[PetaNodeOut]
+    hafalan_order: str = "sequential"
+    plan: SetorPlanOut | None = None
 
 
 class MurojaahItemOut(BaseModel):
