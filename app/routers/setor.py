@@ -242,5 +242,5 @@ async def evaluate_submission(
     if await teaching.active_link(db, sub.member_id):
         raise HTTPException(403, "Penilaian dilakukan guru yang terhubung")
 
-    await setor_flow.apply_submission_evaluation(db, sub, member, payload)
+    await setor_flow.apply_submission_evaluation(db, sub, member, payload, evaluator_id=ctx.subject_id, evaluator_role="parent")
     return _submission_out(sub, member)

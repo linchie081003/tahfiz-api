@@ -261,7 +261,7 @@ async def evaluate(submission_id: uuid.UUID, payload: schemas.EvaluateSubmission
     member = await db.get(models.Member, sub.member_id)
     if sub.status != models.SubmissionStatus.pending_eval:
         return {"status": sub.status.value}
-    await setor_flow.apply_submission_evaluation(db, sub, member, payload)
+    await setor_flow.apply_submission_evaluation(db, sub, member, payload, evaluator_id=t.id, evaluator_role="teacher")
     if payload.evaluator_notes:
         db.add(models.TeacherMessage(teacher_id=t.id, family_id=sub.family_id, member_id=sub.member_id,
                                      direction="to_parent", kind="note", body=payload.evaluator_notes))

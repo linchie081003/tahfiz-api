@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import models, schemas
 from app.models import SubmissionContext, SubmissionStatus, SurahProgressStatus, TahsinStatus
-from app.services import gamification, murojaah, progress
+from app.services import gamification, hafalan_ranges, murojaah, progress
 
 
 async def assert_ziyadah_setor_allowed(
@@ -77,12 +77,21 @@ async def apply_submission_evaluation(
     sub: models.Submission,
     member: models.Member,
     payload: schemas.EvaluateSubmissionIn,
+    *,
+    evaluator_id: uuid.UUID | None = None,
+    evaluator_role: str = "parent",
 ) -> None:
     """Side effects for first-time evaluation (caller must ensure status is pending_eval)."""
     sub.status = payload.status
     sub.rubric_scores = payload.rubric_scores
     sub.evaluator_notes = payload.evaluator_notes
     sub.evaluated_at = datetime.now(timezone.utc)
+    await hafalan_ranges.record_evaluation(
+        db, sub, evaluator_id=evaluator_id, evaluator_role=evaluator_role,
+        result=payload.status.value, notes=payload.evaluator_notes, rubric_scores=payload.rubric_scores,
+    )
+    if sub.context == SubmissionContext.ziyadah and payload.status == SubmissionStatus.passed:
+        await hafalan_ranges.record_passed_range(db, sub)
 
     if sub.context == SubmissionContext.tahsin:
         if payload.status == SubmissionStatus.passed:
