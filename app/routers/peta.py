@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services.surah_translit import surah_name
 from app import models, schemas
 from app.database import get_db
 from app.deps import AuthContext, get_current_context, optional_member_id
@@ -27,7 +28,7 @@ async def peta_juz30(
         nodes = [
             schemas.PetaNodeOut(
                 surah_id=s.id,
-                name_id=s.name_id,
+                name_id=surah_name(s.id, s.name_id),
                 ayah_count=s.ayah_count,
                 status="active",
                 curriculum_order=s.curriculum_order,
@@ -41,7 +42,7 @@ async def peta_juz30(
             passed_count=0,
             total_count=len(surahs),
             active_surah_id=first.id if first else None,
-            active_surah_name=first.name_id if first else None,
+            active_surah_name=surah_name(first.id, first.name_id) if first else None,
             unlock_hint="Mode orang tua — semua surat Juz 30 terbuka untuk eksplorasi",
             nodes=nodes,
         )
@@ -76,7 +77,7 @@ async def peta_juz30(
                 status = "active"
                 if active_id is None:
                     active_id = s.id
-                    active_name = s.name_id
+                    active_name = surah_name(s.id, s.name_id)
         elif not pr:
             status = "locked"
         elif pr.status == models.SurahProgressStatus.passed:
@@ -86,13 +87,13 @@ async def peta_juz30(
             status = "active"
             if active_id is None:
                 active_id = s.id
-                active_name = s.name_id
+                active_name = surah_name(s.id, s.name_id)
         else:
             status = "locked"
         nodes.append(
             schemas.PetaNodeOut(
                 surah_id=s.id,
-                name_id=s.name_id,
+                name_id=surah_name(s.id, s.name_id),
                 ayah_count=s.ayah_count,
                 status=status,
                 curriculum_order=s.curriculum_order,
@@ -104,7 +105,7 @@ async def peta_juz30(
     if planned_row:  # surat rencana anak anak (mode bebas) didahulukan; selain itu yang pertama aktif
         cs = next((x for x in surahs if x.id == planned_row.surah_id), None)
         if cs:
-            active_id, active_name = cs.id, cs.name_id
+            active_id, active_name = cs.id, surah_name(cs.id, cs.name_id)
     if active_id and not parent_open:
         nxt = next((n for n in nodes if n.status == "locked"), None)
         if nxt and order != "free":

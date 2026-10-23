@@ -8,6 +8,7 @@ from datetime import date, datetime, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services.surah_translit import surah_name
 from app import models
 from app.models import SubmissionContext, SubmissionStatus, SurahProgressStatus
 
@@ -73,7 +74,7 @@ async def build_weekly_report(db: AsyncSession, family_id: uuid.UUID, member: mo
 
     overdue_rows = (
         await db.execute(
-            select(models.Surah.name_id)
+            select(models.Surah.id, models.Surah.name_id)
             .join(models.MurojaahItem, models.MurojaahItem.surah_id == models.Surah.id)
             .where(
                 models.MurojaahItem.member_id == member.id,
@@ -83,7 +84,7 @@ async def build_weekly_report(db: AsyncSession, family_id: uuid.UUID, member: mo
             .order_by(models.MurojaahItem.due_date)
         )
     ).all()
-    overdue_names = [r[0] for r in overdue_rows]
+    overdue_names = [surah_name(r[0], r[1]) for r in overdue_rows]
 
     ayat_total = sum(per_day.values())
     active_days = sum(1 for v in per_day.values() if v > 0)

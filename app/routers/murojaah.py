@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services.surah_translit import surah_name
 from app import models, schemas
 from app.database import get_db
 from app.deps import AuthContext, get_current_context, optional_member_id, require_member_id
@@ -28,7 +29,7 @@ async def due(
     out = []
     for it in items:
         surah = await db.get(models.Surah, it.surah_id)
-        out.append(schemas.MurojaahItemOut(id=it.id, surah_id=it.surah_id, surah_name=surah.name_id if surah else "", due_date=it.due_date))
+        out.append(schemas.MurojaahItemOut(id=it.id, surah_id=it.surah_id, surah_name=surah_name(surah.id, surah.name_id) if surah else "", due_date=it.due_date))
     return out
 
 

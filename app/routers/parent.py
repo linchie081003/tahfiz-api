@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services.surah_translit import surah_name
 from app import models, schemas
 from app.database import get_db
 from app.deps import AuthContext, require_parent
@@ -66,12 +67,12 @@ async def parent_dashboard(ctx: AuthContext = Depends(require_parent), db: Async
         hafalan_line = ""
         if active:
             sr = await db.get(models.Surah, active.surah_id)
-            hafalan_line = f"{sr.name_id if sr else 'Surat'}, ayat {active.current_ayah}"
+            hafalan_line = f"{surah_name(sr.id, sr.name_id) if sr else 'Surat'}, ayat {active.current_ayah}"
         due = await murojaah.due_items(db, m.id, 50) if await progress.hafalan_unlocked(db, m) else []
         due_name = ""
         if due:
             ds = await db.get(models.Surah, due[0].surah_id)
-            due_name = ds.name_id if ds else ""
+            due_name = surah_name(ds.id, ds.name_id) if ds else ""
         children.append(
             schemas.ParentChildSummaryOut(
                 id=m.id,

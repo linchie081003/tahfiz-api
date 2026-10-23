@@ -17,6 +17,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services.surah_translit import surah_name
 from app import models
 from app.config import settings
 
@@ -68,7 +69,7 @@ async def webpush_sender(sub: dict, payload: dict) -> object:
 async def _due_surah_names(db: AsyncSession, member_id, local_day) -> list[str]:
     rows = (
         await db.execute(
-            select(models.Surah.name_id)
+            select(models.Surah.id, models.Surah.name_id)
             .join(models.MurojaahItem, models.MurojaahItem.surah_id == models.Surah.id)
             .where(
                 models.MurojaahItem.member_id == member_id,
@@ -78,7 +79,7 @@ async def _due_surah_names(db: AsyncSession, member_id, local_day) -> list[str]:
             .order_by(models.MurojaahItem.weak_score.desc(), models.MurojaahItem.due_date)
         )
     ).all()
-    return [r[0] for r in rows]
+    return [surah_name(r[0], r[1]) for r in rows]
 
 
 async def run_reminders(db: AsyncSession, now: datetime | None = None, sender: Sender = webpush_sender) -> dict:
