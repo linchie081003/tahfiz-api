@@ -125,3 +125,10 @@ async def test_peta_plan_and_pilih_surat_via_api(client):
     peta = (await client.get("/peta/juz/30", headers=H(child))).json()
     assert peta["active_surah_id"] == 2
     assert (peta["plan"]["ayah_start"], peta["plan"]["ayah_end"], peta["plan"]["mode"]) == (1, 3, "target_harian")
+
+
+def test_tilawah_reciter_is_alafasy_and_exists():
+    from app.services import reciters as rc
+
+    assert rc.TILAWAH_RECITER_ID == "alafasy"
+    assert rc.everyayah_url(1, 1, rc.TILAWAH_RECITER_ID).endswith("Alafasy_128kbps/001001.mp3")

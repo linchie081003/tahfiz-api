@@ -9,6 +9,7 @@ from app.models import AgeMode
 from app.services.juz30 import list_juz30_surahs
 from app.services.quran_com_import import ensure_chapter_catalog, ensure_surah_ayahs, ensure_tajweed
 from app.services.reciters import (
+    TILAWAH_RECITER_ID,
     default_reciter_for_age,
     everyayah_url,
     list_reciters,
@@ -108,6 +109,7 @@ async def _resolve_reciter(
 async def ayahs(
     surah_id: int,
     reciter_id: str | None = Query(None),
+    purpose: str | None = Query(None, pattern="^(tilawah)$"),
     ctx: AuthContext = Depends(get_current_context),
     db: AsyncSession = Depends(get_db),
 ):
@@ -123,7 +125,8 @@ async def ayahs(
     if not rows:
         raise HTTPException(404, "Ayat surat belum tersedia — coba lagi atau jalankan scripts/import_full_quran.py")
     age_mode = await _member_age_mode(db, ctx)
-    rid = await _resolve_reciter(db, ctx.family_id, reciter_id, age_mode)
+    # Tilawah (mendengarkan) selalu memakai Mishary Rashid Alafasy; belajar mengikuti qari belajar anak.
+    rid = TILAWAH_RECITER_ID if purpose == "tilawah" else await _resolve_reciter(db, ctx.family_id, reciter_id, age_mode)
     out: list[schemas.AyahOut] = []
     for a in rows:
         out.append(

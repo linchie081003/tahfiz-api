@@ -58,6 +58,7 @@ RECITERS: list[Reciter] = [
 
 DEFAULT_RECITER_ID = "husary_muallim"
 BEAUTY_RECITER_ID = "husary_mujawwad"
+TILAWAH_RECITER_ID = "alafasy"  # Tilawah: Mishary Rashid Alafasy
 
 _DEFAULT_BY_AGE: dict[AgeMode, str] = {
     AgeMode.paud: "husary_muallim",
