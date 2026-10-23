@@ -109,8 +109,14 @@ async def maybe_award_badges(db: AsyncSession, member_id, stats: MemberStats):
 
 async def list_badges(db: AsyncSession, member_id) -> list[dict]:
     defs = (await db.execute(select(BadgeDefinition))).scalars().all()
-    earned = {
-        b.badge_id
+    got = {
+        b.badge_id: b
         for b in (await db.execute(select(MemberBadge).where(MemberBadge.member_id == member_id))).scalars().all()
     }
-    return [{"id": d.id, "title": d.title, "description": d.description, "earned": d.id in earned} for d in defs]
+    return [
+        {
+            "id": d.id, "title": d.title, "description": d.description, "earned": d.id in got,
+            "kind": d.requirement_key, "earned_at": got[d.id].earned_at if d.id in got else None,
+        }
+        for d in defs
+    ]

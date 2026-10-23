@@ -359,11 +359,15 @@ class BadgeOut(BaseModel):
     title: str
     description: str
     earned: bool
+    kind: str | None = None  # jenis syarat: tahsin, juz30, streak (untuk ikon)
+    earned_at: datetime | None = None
 
 
 class GamificationOut(BaseModel):
     xp: int
     level: int
+    xp_level_start: int = 0
+    xp_next_level: int = 100
     rank_title: str
     streak_days: int
     badges: list[BadgeOut]

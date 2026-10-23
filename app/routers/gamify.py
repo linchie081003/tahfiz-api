@@ -28,6 +28,8 @@ async def gamification_view(
     return schemas.GamificationOut(
         xp=stats.xp,
         level=stats.level,
+        xp_level_start=gamification.LEVEL_THRESHOLDS[min(stats.level, len(gamification.LEVEL_THRESHOLDS)) - 1],
+        xp_next_level=gamification.level_from_xp(stats.xp)[2],
         rank_title=stats.rank_title,
         streak_days=stats.streak_days,
         badges=[schemas.BadgeOut(**b) for b in badges],
