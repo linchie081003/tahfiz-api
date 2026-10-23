@@ -1,5 +1,2 @@
-# Opsional: Whisper open source di mesin yang sama (tanpa OpenAI).
-# Butuh FFmpeg di PATH. CPU: cukup lambat; GPU CUDA jauh lebih cepat.
+# Whisper lokal kini sudah ada di requirements.txt; berkas ini dipertahankan agar perintah lama tetap jalan.
 -r requirements.txt
-faster-whisper>=1.1.0,<1.3
-av>=12.0.0,<14.0.0

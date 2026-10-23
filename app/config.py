@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     stt_api_key: str = ""
     stt_base_url: str = "https://api.openai.com/v1"
     stt_model: str = "whisper-1"
-    stt_whisper_model: str = "small"  # faster-whisper: tiny, base, small, medium, …
+    stt_whisper_model: str = "base"  # faster-whisper: tiny, base, small, medium, …
     stt_whisper_device: str = "cpu"  # cpu | cuda
     stt_timeout_seconds: float = 25.0
     # Pengingat

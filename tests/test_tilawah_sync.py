@@ -104,3 +104,21 @@ async def test_setor_allowed_for_any_in_progress_surah_and_repairs_missing_rows(
     member = await db.get(models.Member, mid)
     prog = await setor_flow.assert_ziyadah_setor_allowed(db, member, 114, 1, 1)
     assert prog.surah_id == 114
+
+
+async def test_stt_preload_noop_when_disabled_and_load_is_lazy():
+    from app.services import stt
+    from app.config import settings
+
+    old = settings.stt_enabled
+    settings.stt_enabled = False
+    try:
+        await stt.preload()  # tidak memuat apa pun
+        assert stt._whisper_model is None
+    finally:
+        settings.stt_enabled = old
+
+
+def test_faster_whisper_is_importable():
+    import faster_whisper  # noqa: F401
+    import av  # noqa: F401
