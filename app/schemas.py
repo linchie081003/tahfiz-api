@@ -361,6 +361,8 @@ class BadgeOut(BaseModel):
     earned: bool
     kind: str | None = None  # jenis syarat: tahsin, juz30, streak (untuk ikon)
     earned_at: datetime | None = None
+    progress: int | None = None  # kemajuan menuju syarat
+    target: int | None = None
 
 
 class GamificationOut(BaseModel):
