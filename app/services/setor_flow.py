@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import models, schemas
 from app.models import SubmissionContext, SubmissionStatus, SurahProgressStatus, TahsinStatus
-from app.services import gamification, hafalan_ranges, murojaah, progress
+from app.services import gamification, hafalan_ranges, murojaah, progress, sesi3
 
 
 async def assert_ziyadah_setor_allowed(
@@ -90,6 +90,9 @@ async def apply_submission_evaluation(
         db, sub, evaluator_id=evaluator_id, evaluator_role=evaluator_role,
         result=payload.status.value, notes=payload.evaluator_notes, rubric_scores=payload.rubric_scores,
     )
+    if sub.context == SubmissionContext.ziyadah and payload.status != SubmissionStatus.passed and sub.surah_id:
+        # evaluasi meminta perbaikan: Sesi 3 menawarkan cek lanjutan untuk rentang ini
+        await sesi3.create_request(db, member, sub.id, "correction")
     if sub.context == SubmissionContext.ziyadah and payload.status == SubmissionStatus.passed:
         rng = await hafalan_ranges.record_passed_range(db, sub)
         if rng:
