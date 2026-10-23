@@ -36,13 +36,19 @@ async def sesi3_today(member_id=Depends(require_member_id), db: AsyncSession = D
     off = await daily_sessions.disabled_reason(db, member_id, "sesi3")
     if off:
         return {"active": False, "sample": [], "offer": None, "disabled_reason": off}
-    return await sesi3.build(db, member_id)
+    member = await db.get(models.Member, member_id)
+    _, plan = await daily_sessions.sesi3_plan(db, member)  # sampel dibekukan agar hasil latihan bisa dicocokkan
+    if not plan:
+        return await sesi3.build(db, member_id)
+    built = await sesi3.build(db, member_id)
+    return {"active": True, "sample": [{**p, "surah_name": surah_name(p["surah_id"], "")} for p in plan], "offer": built.get("offer")}
 
 
 @router.post("/sesi3/minta", status_code=201)
 async def ask_check(payload: AskIn, member_id=Depends(require_member_id), db: AsyncSession = Depends(get_db)):
     member = await db.get(models.Member, member_id)
     req = await sesi3.create_request(db, member, payload.submission_id, "child_mark", ayah_number=payload.ayah_number, created_by=member_id)
+    # permintaan cek hanya dicatat sebagai aktivitas; bukan bukti latihan, tidak menyelesaikan Sesi 3
     await daily_sessions.mark_completed(db, member, "sesi3", activity_type="sesi3_request", activity_id=req.id)
     return {"id": req.id, "status": req.status}
 

@@ -45,11 +45,21 @@ async def today_sessions(member_id=Depends(require_member_id), db: AsyncSession 
     return {"day": ds.today(), "sessions": [_out(r) for r in rows]}
 
 
+class Sesi3Result(BaseModel):
+    surah_id: int = Field(ge=1, le=114)
+    ayah_number: int = Field(ge=1, le=286)
+    result: str
+
+
+class Sesi3FinishIn(BaseModel):
+    results: list[Sesi3Result] = Field(min_length=1, max_length=100)
+
+
 @router.post("/sesi3/selesai")
-async def finish_sesi3(member_id=Depends(require_member_id), db: AsyncSession = Depends(get_db)):
-    """Anak menyelesaikan latihan penguatan Sesi 3 hari ini."""
+async def finish_sesi3(payload: Sesi3FinishIn, member_id=Depends(require_member_id), db: AsyncSession = Depends(get_db)):
+    """Selesai hanya bila hasil mencakup tepat sampel Sesi 3 hari ini; tanpa hasil yang sah ditolak."""
     member = await db.get(models.Member, member_id)
-    row = await ds.mark_completed(db, member, "sesi3", activity_type="sesi3_practice", activity_id=None)
+    row, _ = await ds.complete_sesi3(db, member, [(r.surah_id, r.ayah_number, r.result) for r in payload.results])
     return _out(row)
 
 
