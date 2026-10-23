@@ -144,3 +144,19 @@ def test_surah_names_are_transliterated_not_meanings():
     assert surah_name(80, "Ia Bermuka Masam") == "'Abasa"
     assert surah_name(1) == "Al-Fatihah" and surah_name(114) == "An-Nas" and surah_name(78) == "An-Naba'"
     assert surah_name(999, "x") == "x"
+
+
+@pytest.mark.asyncio
+async def test_murajaah_only_for_passed_surahs(db_session, member_with_ziyadah):
+    from datetime import date
+
+    from app.services import murojaah
+
+    m = member_with_ziyadah  # An-Nas masih in_progress
+    db_session.add(MurojaahItem(member_id=m.id, surah_id=114, due_date=date.today()))
+    await db_session.flush()
+    assert await murojaah.due_items(db_session, m.id, 10) == []  # belum lulus: tidak muncul
+    prog = (await db_session.execute(select(MemberSurahProgress).where(MemberSurahProgress.member_id == m.id))).scalar_one()
+    prog.status = SurahProgressStatus.passed
+    await db_session.flush()
+    assert len(await murojaah.due_items(db_session, m.id, 10)) == 1

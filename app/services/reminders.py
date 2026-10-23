@@ -71,9 +71,11 @@ async def _due_surah_names(db: AsyncSession, member_id, local_day) -> list[str]:
         await db.execute(
             select(models.Surah.id, models.Surah.name_id)
             .join(models.MurojaahItem, models.MurojaahItem.surah_id == models.Surah.id)
+            .join(models.MemberSurahProgress, (models.MemberSurahProgress.member_id == models.MurojaahItem.member_id) & (models.MemberSurahProgress.surah_id == models.MurojaahItem.surah_id))
             .where(
                 models.MurojaahItem.member_id == member_id,
                 models.MurojaahItem.completed.is_(False),
+                models.MemberSurahProgress.status == models.SurahProgressStatus.passed,
                 models.MurojaahItem.due_date <= local_day,
             )
             .order_by(models.MurojaahItem.weak_score.desc(), models.MurojaahItem.due_date)
