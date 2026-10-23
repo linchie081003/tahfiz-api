@@ -13,6 +13,8 @@ class Reciter:
     folder: str
     description: str
     style: str  # muallim | murattal | mujawwad
+    maqam: tuple[str, ...] = ()  # perkiraan umum irama (rast | bayati); irama sebenarnya bisa berganti antar surat dan ayat
+    tilawah_only: bool = False  # hanya untuk mendengarkan Tilawah, bukan qari belajar
 
 
 RECITERS: list[Reciter] = [
@@ -55,6 +57,20 @@ RECITERS: list[Reciter] = [
         "mujawwad",
     ),
 ]
+
+# Qari khusus Tilawah (mendengarkan). Penandaan irama adalah perkiraan umum, bukan data per surat.
+RECITERS += [
+    Reciter("minshawi_mujawwad", "Muhammad Siddiq Al-Minshawi (Mujawwad)", "male", "Minshawy_Mujawwad_192kbps",
+            "Mujawwad Mesir — khusyuk, cocok untuk mendengarkan", "mujawwad", ("bayati",), True),
+    Reciter("abdulbasit_mujawwad", "Abdul Basit Abdus Samad (Mujawwad)", "male", "Abdul_Basit_Mujawwad_128kbps",
+            "Mujawwad Mesir — napas panjang, irama berganti-ganti", "mujawwad", ("rast", "bayati"), True),
+    Reciter("mustafa_ismail", "Mustafa Ismail", "male", "Mustafa_Ismail_48kbps",
+            "Qari Mesir klasik — irama berganti-ganti", "mujawwad", ("rast", "bayati"), True),
+    Reciter("al_banna", "Mahmud Ali Al-Banna", "male", "mahmoud_ali_al_banna_32kbps",
+            "Qari Mesir klasik — irama berganti-ganti", "mujawwad", ("rast", "bayati"), True),
+]
+
+MAQAMS = ("rast", "bayati")
 
 DEFAULT_RECITER_ID = "husary_muallim"
 BEAUTY_RECITER_ID = "husary_mujawwad"
@@ -145,6 +161,21 @@ def list_reciters(
         filtered = [r for r in rows if r.gender == gender]
         return filtered if filtered else [r for r in rows if r.gender == "male"]
     return rows
+
+
+def list_tilawah_reciters(maqam: str | None = None) -> list[Reciter]:
+    """Qari untuk mendengarkan Tilawah: qari murattal biasa ditambah qari khusus Tilawah; boleh disaring menurut irama."""
+    rows = [r for r in RECITERS if r.id != BEAUTY_RECITER_ID]
+    if maqam in MAQAMS:
+        rows = [r for r in rows if maqam in r.maqam]
+    return rows
+
+
+def reciter_for_tilawah(reciter_id: str | None, age_mode: AgeMode | str | None = None) -> str:
+    rid = normalize_reciter_id(reciter_id) if reciter_id else default_reciter_for_age(age_mode)
+    if any(r.id == rid for r in list_tilawah_reciters()):
+        return rid
+    return default_reciter_for_age(age_mode)
 
 
 def beauty_audio_urls(surah_id: int, ayah_start: int, ayah_end: int) -> list[str]:

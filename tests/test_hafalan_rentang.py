@@ -125,3 +125,17 @@ async def test_peta_plan_and_pilih_surat_via_api(client):
     peta = (await client.get("/peta/juz/30", headers=H(child))).json()
     assert peta["active_surah_id"] == 2
     assert (peta["plan"]["ayah_start"], peta["plan"]["ayah_end"], peta["plan"]["mode"]) == (1, 3, "target_harian")
+
+
+def test_tilawah_reciters_filter_by_maqam_and_stay_out_of_learning():
+    from app.services import reciters as rc
+
+    rast = {r.id for r in rc.list_tilawah_reciters("rast")}
+    bayati = {r.id for r in rc.list_tilawah_reciters("bayati")}
+    assert rast and bayati and "minshawi_mujawwad" in bayati and "minshawi_mujawwad" not in rast
+    assert "husary_mujawwad" not in {r.id for r in rc.list_tilawah_reciters()}  # hadiah, bukan Tilawah
+    assert rc.reciter_for_tilawah("abdulbasit_mujawwad") == "abdulbasit_mujawwad"
+    # qari belajar tetap tidak memakai qari khusus Tilawah
+    assert rc.reciter_for_learning("abdulbasit_mujawwad", "sd") == "husary_muallim"
+    assert all(r.id not in {"minshawi_mujawwad", "abdulbasit_mujawwad", "mustafa_ismail", "al_banna"} for r in rc.list_reciters(for_settings=True, age_mode="adult"))
+    assert rc.everyayah_url(1, 2, "mustafa_ismail").endswith("Mustafa_Ismail_48kbps/001002.mp3")

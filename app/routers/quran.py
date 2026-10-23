@@ -12,6 +12,8 @@ from app.services.reciters import (
     default_reciter_for_age,
     everyayah_url,
     list_reciters,
+    list_tilawah_reciters,
+    reciter_for_tilawah,
     reciter_for_learning,
 )
 from app.services.surah_names_id import indonesian_surah_name
@@ -58,11 +60,19 @@ async def list_surahs(
 async def reciters(
     gender: str | None = Query(None, pattern="^(male|female)$"),
     age_mode: AgeMode | None = Query(None),
+    purpose: str | None = Query(None, pattern="^(tilawah)$"),
+    maqam: str | None = Query(None, pattern="^(rast|bayati)$"),
     ctx: AuthContext = Depends(get_current_context),
     db: AsyncSession = Depends(get_db),
 ):
     mode = age_mode or await _member_age_mode(db, ctx)
     default_id = default_reciter_for_age(mode)
+    if purpose == "tilawah":
+        return [
+            schemas.ReciterOut(id=r.id, label=r.label, gender=r.gender, description=r.description, style=r.style,
+                               default_for_age=r.id == default_id, maqam=list(r.maqam), tilawah_only=r.tilawah_only)
+            for r in list_tilawah_reciters(maqam)
+        ]
     return [
         schemas.ReciterOut(
             id=r.id,
@@ -108,6 +118,7 @@ async def _resolve_reciter(
 async def ayahs(
     surah_id: int,
     reciter_id: str | None = Query(None),
+    purpose: str | None = Query(None, pattern="^(tilawah)$"),
     ctx: AuthContext = Depends(get_current_context),
     db: AsyncSession = Depends(get_db),
 ):
@@ -123,7 +134,10 @@ async def ayahs(
     if not rows:
         raise HTTPException(404, "Ayat surat belum tersedia — coba lagi atau jalankan scripts/import_full_quran.py")
     age_mode = await _member_age_mode(db, ctx)
-    rid = await _resolve_reciter(db, ctx.family_id, reciter_id, age_mode)
+    if purpose == "tilawah" and reciter_id:
+        rid = reciter_for_tilawah(reciter_id, age_mode)  # mendengarkan Tilawah boleh memakai qari mujawwad
+    else:
+        rid = await _resolve_reciter(db, ctx.family_id, reciter_id, age_mode)
     out: list[schemas.AyahOut] = []
     for a in rows:
         out.append(

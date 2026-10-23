@@ -170,6 +170,8 @@ class ReciterOut(BaseModel):
     description: str
     style: str
     default_for_age: bool = False
+    maqam: list[str] = []
+    tilawah_only: bool = False
 
 
 class BeautyRewardOut(BaseModel):
