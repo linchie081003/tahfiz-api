@@ -58,11 +58,14 @@ async def create_submission(
     member = await db.get(models.Member, member_id)
     if not member or member.family_id != ctx.family_id:
         raise HTTPException(403, "Akses ditolak")
+    replaced: list[models.Submission] = []
     if context == models.SubmissionContext.ziyadah:
+        await setor_flow.lock_member(db, member_id)
         off = await daily_sessions.disabled_reason(db, member_id, "sesi2")
         if off:
             raise HTTPException(409, f"Hafalan baru dimatikan orang tua hari ini: {off}")
         await setor_flow.assert_ziyadah_setor_allowed(db, member, surah_id, ayah_start, ayah_end)
+        replaced = await setor_flow.supersede_pending_ziyadah(db, member_id, surah_id, ayah_start, ayah_end if ayah_end is not None else ayah_start)
     if context == models.SubmissionContext.tahsin and tahsin_point in (2, 3):
         prev = (await tahsin_points._rows(db, member_id)).get(tahsin_point - 1)
         if not (prev and prev.passed):
@@ -83,6 +86,8 @@ async def create_submission(
     )
     db.add(sub)
     await db.flush()
+    for o in replaced:
+        o.superseded_by_id = sub.id
     fam = await db.get(models.Family, ctx.family_id)
     if fam is not None and fam.recording_consent_at is None:
         # Tanpa persetujuan, anak tetap belajar tetapi rekaman tidak disimpan.
@@ -132,7 +137,8 @@ async def _process_ai_inline(db: AsyncSession, sub: models.Submission, audio: by
     )
     sub.ai_insights = insights
     sub.ai_status = "completed"
-    sub.status = models.SubmissionStatus.pending_eval
+    if sub.status == models.SubmissionStatus.pending_ai:  # jangan menghidupkan kembali setoran yang sudah digantikan
+        sub.status = models.SubmissionStatus.pending_eval
 
 
 @router.post("/{submission_id}/reprocess-precheck", response_model=schemas.SubmissionOut)
@@ -282,6 +288,8 @@ async def evaluate_submission(
     if not member:
         raise HTTPException(404, "Profil tidak ditemukan")
 
+    if sub.status == models.SubmissionStatus.superseded:
+        raise HTTPException(409, "Setoran ini sudah digantikan setoran yang lebih baru")
     if sub.status != models.SubmissionStatus.pending_eval:
         return _submission_out(sub, member)
     if not await corrections.parent_may_evaluate(db, sub.family_id):

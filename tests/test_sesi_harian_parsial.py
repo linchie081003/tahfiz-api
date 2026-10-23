@@ -227,3 +227,42 @@ async def test_sesi_dimatikan_menutup_layar_anak(client):
     r = await client.post("/setor", headers=H(tok), data={"context": "ziyadah", "reference_text": "x", "surah_id": "114", "ayah_start": "1", "ayah_end": "1"},
                           files={"file": ("r.webm", io.BytesIO(b"x" * 10), "audio/webm")})
     assert r.status_code == 409 and "Sakit" in r.text
+
+
+# ---------------------------------------------------------------- satu setoran pending per rentang
+
+@pytest.mark.asyncio
+async def test_kirim_ulang_menggantikan_pending_dan_riwayat_tetap(db_session, member_with_ziyadah):
+    m = member_with_ziyadah
+    old = await _sub(db_session, m, 2, 4)
+    other = await _sub(db_session, m, 5, 6)  # tidak beririsan
+    await setor_flow.lock_member(db_session, m.id)
+    replaced = await setor_flow.supersede_pending_ziyadah(db_session, m.id, 114, 2, 3)
+    assert [r.id for r in replaced] == [old.id]
+    new = await _sub(db_session, m, 2, 3)
+    old.superseded_by_id = new.id
+    await db_session.flush()
+    await db_session.refresh(old)
+    assert old.status == SubmissionStatus.superseded and old.superseded_by_id == new.id and old.superseded_at is not None
+    assert other.status == SubmissionStatus.pending_eval and new.status == SubmissionStatus.pending_eval
+    rows = (await db_session.execute(select(Submission).where(Submission.member_id == m.id))).scalars().all()
+    assert len(rows) == 3  # setoran lama tidak dihapus
+
+
+@pytest.mark.asyncio
+async def test_indeks_unik_menolak_dua_pending_pada_rentang_sama(db_session, member_with_ziyadah):
+    from sqlalchemy.exc import IntegrityError
+    m = member_with_ziyadah
+    await _sub(db_session, m, 2, 4)
+    with pytest.raises(IntegrityError):
+        await _sub(db_session, m, 2, 4)
+    await db_session.rollback()
+
+
+@pytest.mark.asyncio
+async def test_setoran_lama_yang_sudah_dinilai_tidak_digantikan(db_session, member_with_ziyadah):
+    m = member_with_ziyadah
+    done = await _sub(db_session, m, 2, 4)
+    await setor_flow.apply_submission_evaluation(db_session, done, m, schemas.EvaluateSubmissionIn(status=SubmissionStatus.passed))
+    assert await setor_flow.supersede_pending_ziyadah(db_session, m.id, 114, 2, 4) == []
+    assert done.status == SubmissionStatus.passed

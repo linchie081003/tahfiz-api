@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import models, schemas
@@ -58,6 +58,39 @@ async def assert_ziyadah_setor_allowed(
             "Ayat setoran harus sama dengan ayat aktif atau ayat berikutnya",
         )
     return prog
+
+
+async def lock_member(db: AsyncSession, member_id: uuid.UUID) -> None:
+    """Serialkan setoran per anak (FOR UPDATE) agar dua kiriman bersamaan tidak lolos pemeriksaan sekaligus."""
+    await db.execute(select(models.Member.id).where(models.Member.id == member_id).with_for_update())
+
+
+async def supersede_pending_ziyadah(
+    db: AsyncSession, member_id: uuid.UUID, surah_id: int, ayah_start: int, ayah_end: int,
+) -> list[models.Submission]:
+    """Tandai setoran ziyadah yang masih menunggu pada rentang yang beririsan sebagai superseded (riwayat tetap).
+
+    Dipanggil sebelum setoran baru disimpan, dalam transaksi yang sama dan setelah lock_member.
+    Ayat yang sudah dinilai pada setoran lama tidak disentuh (rentang dan penilaiannya tetap).
+    """
+    old = (
+        await db.execute(
+            select(models.Submission).where(
+                models.Submission.member_id == member_id,
+                models.Submission.context == SubmissionContext.ziyadah,
+                models.Submission.surah_id == surah_id,
+                models.Submission.status.in_([SubmissionStatus.pending_ai, SubmissionStatus.pending_eval]),
+                models.Submission.ayah_start <= ayah_end,
+                func.coalesce(models.Submission.ayah_end, models.Submission.ayah_start) >= ayah_start,
+            )
+        )
+    ).scalars().all()
+    now = datetime.now(timezone.utc)
+    for o in old:
+        o.status, o.superseded_at = SubmissionStatus.superseded, now
+    if old:
+        await db.flush()  # bebaskan indeks unik sebelum baris baru dimasukkan
+    return list(old)
 
 
 async def load_submission_for_evaluate(

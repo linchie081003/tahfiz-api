@@ -20,7 +20,7 @@ async def process_one(submission_id: str):
             return
         # Pra-cek kini diproses langsung saat setor (butuh audio + persetujuan keluarga).
         # Worker tidak boleh menimpa hasilnya dengan nilai karangan.
-        if sub.ai_status == "completed":
+        if sub.ai_status == "completed" or sub.status == SubmissionStatus.superseded:
             return
         sub.ai_insights = unavailable("worker")
         sub.ai_status = "completed"

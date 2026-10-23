@@ -259,6 +259,8 @@ async def evaluate(submission_id: uuid.UUID, payload: schemas.EvaluateSubmission
         raise HTTPException(404, "Setoran tidak ditemukan")
     await _student_link(db, t, sub.member_id)
     member = await db.get(models.Member, sub.member_id)
+    if sub.status == models.SubmissionStatus.superseded:
+        raise HTTPException(409, "Setoran ini sudah digantikan setoran yang lebih baru")
     if sub.status != models.SubmissionStatus.pending_eval:
         return {"status": sub.status.value}
     if await teaching.takeover_for(db, sub.id):

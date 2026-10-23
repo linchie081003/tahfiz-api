@@ -2,7 +2,7 @@ import enum
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import JSON, Boolean, Date, DateTime, Enum, Float, ForeignKey, Integer, String, Text, UniqueConstraint, Uuid, func, true
+from sqlalchemy import JSON, Index, Boolean, Date, DateTime, Enum, Float, ForeignKey, Integer, String, Text, UniqueConstraint, Uuid, func, text, true
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -193,6 +193,20 @@ class Submission(Base):
     rubric_scores: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     evaluated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Setoran lama yang digantikan kiriman ulang pada rentang yang sama; riwayatnya tetap disimpan.
+    superseded_by_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("submissions.id"), nullable=True)
+    superseded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        # Satu rentang ziyadah hanya boleh punya satu setoran aktif (menunggu AI/penilaian) per anak.
+        Index(
+            "uq_submissions_pending_range",
+            "member_id", "surah_id", "ayah_start", "ayah_end",
+            unique=True,
+            postgresql_where=text("context = 'ziyadah' AND status IN ('pending_ai', 'pending_eval')"),
+            sqlite_where=text("context = 'ziyadah' AND status IN ('pending_ai', 'pending_eval')"),
+        ),
+    )
 
 
 class TahsinAttempt(Base):
