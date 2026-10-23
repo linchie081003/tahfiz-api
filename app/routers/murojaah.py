@@ -29,8 +29,37 @@ async def due(
     out = []
     for it in items:
         surah = await db.get(models.Surah, it.surah_id)
-        out.append(schemas.MurojaahItemOut(id=it.id, surah_id=it.surah_id, surah_name=surah_name(surah.id, surah.name_id) if surah else "", due_date=it.due_date))
+        out.append(schemas.MurojaahItemOut(
+            id=it.id, surah_id=it.surah_id, surah_name=surah_name(surah.id, surah.name_id) if surah else "",
+            due_date=it.due_date, ayah_start=it.ayah_start, ayah_end=it.ayah_end,
+        ))
     return out
+
+
+@router.get("/sesi", response_model=schemas.MurojaahSessionOut)
+async def sesi(
+    member_id=Depends(optional_member_id),
+    ctx: AuthContext = Depends(get_current_context),
+    db: AsyncSession = Depends(get_db),
+):
+    """Sesi 1: murajaah hafalan lama. Aktif bila ada minimal satu ayat yang sudah lulus."""
+    if member_id is None:
+        return schemas.MurojaahSessionOut(active=False, max_ayah=murojaah.SESI1_MAX_AYAH, total_ayah=0, blocks=[])
+    has_range = (
+        await db.execute(select(models.MurojaahItem.id).where(models.MurojaahItem.member_id == member_id).limit(1))
+    ).first() is not None
+    items = await murojaah.due_items(db, member_id, 50)
+    chosen = murojaah.pick_for_session(items)
+    blocks = []
+    for b in murojaah.to_blocks(chosen):
+        surah = await db.get(models.Surah, b["surah_id"])
+        blocks.append(schemas.MurojaahBlockOut(
+            surah_id=b["surah_id"], surah_name=surah_name(b["surah_id"], surah.name_id if surah else ""),
+            ayah_start=b["ayah_start"], ayah_end=b["ayah_end"],
+            items=[schemas.MurojaahSessionItemOut(**i) for i in b["items"]],
+        ))
+    total = sum(b.ayah_end - b.ayah_start + 1 for b in blocks)
+    return schemas.MurojaahSessionOut(active=has_range, max_ayah=murojaah.SESI1_MAX_AYAH, total_ayah=total, blocks=blocks)
 
 
 @router.post("/{item_id}/complete")

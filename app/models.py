@@ -213,6 +213,10 @@ class MurojaahItem(Base):
     interval_days: Mapped[int] = mapped_column(Integer, default=1)
     weak_score: Mapped[int] = mapped_column(Integer, default=0)
     completed: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Jadwal per rentang ayat (kosong = data lama, dianggap seluruh surat lalu dinormalkan oleh backfill)
+    range_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("memorized_ranges.id"), nullable=True)
+    ayah_start: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    ayah_end: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 class MemberStats(Base):

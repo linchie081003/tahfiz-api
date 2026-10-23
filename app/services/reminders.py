@@ -71,17 +71,20 @@ async def _due_surah_names(db: AsyncSession, member_id, local_day) -> list[str]:
         await db.execute(
             select(models.Surah.id, models.Surah.name_id)
             .join(models.MurojaahItem, models.MurojaahItem.surah_id == models.Surah.id)
-            .join(models.MemberSurahProgress, (models.MemberSurahProgress.member_id == models.MurojaahItem.member_id) & (models.MemberSurahProgress.surah_id == models.MurojaahItem.surah_id))
             .where(
                 models.MurojaahItem.member_id == member_id,
                 models.MurojaahItem.completed.is_(False),
-                models.MemberSurahProgress.status == models.SurahProgressStatus.passed,
                 models.MurojaahItem.due_date <= local_day,
             )
             .order_by(models.MurojaahItem.weak_score.desc(), models.MurojaahItem.due_date)
         )
     ).all()
-    return [surah_name(r[0], r[1]) for r in rows]
+    names: list[str] = []
+    for r in rows:
+        n = surah_name(r[0], r[1])
+        if n not in names:
+            names.append(n)
+    return names
 
 
 async def run_reminders(db: AsyncSession, now: datetime | None = None, sender: Sender = webpush_sender) -> dict:

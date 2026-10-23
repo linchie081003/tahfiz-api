@@ -295,8 +295,31 @@ class MurojaahItemOut(BaseModel):
     surah_id: int
     surah_name: str
     due_date: date
+    ayah_start: int | None = None
+    ayah_end: int | None = None
 
     model_config = {"from_attributes": True}
+
+
+class MurojaahSessionItemOut(BaseModel):
+    id: uuid.UUID
+    ayah_start: int
+    ayah_end: int
+
+
+class MurojaahBlockOut(BaseModel):
+    surah_id: int
+    surah_name: str
+    ayah_start: int
+    ayah_end: int
+    items: list[MurojaahSessionItemOut]
+
+
+class MurojaahSessionOut(BaseModel):
+    active: bool  # Sesi 1 aktif jika ada minimal satu ayat lulus
+    max_ayah: int
+    total_ayah: int
+    blocks: list[MurojaahBlockOut]
 
 
 class MurojaahCompleteIn(BaseModel):

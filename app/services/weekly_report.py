@@ -76,17 +76,15 @@ async def build_weekly_report(db: AsyncSession, family_id: uuid.UUID, member: mo
         await db.execute(
             select(models.Surah.id, models.Surah.name_id)
             .join(models.MurojaahItem, models.MurojaahItem.surah_id == models.Surah.id)
-            .join(models.MemberSurahProgress, (models.MemberSurahProgress.member_id == models.MurojaahItem.member_id) & (models.MemberSurahProgress.surah_id == models.MurojaahItem.surah_id))
             .where(
                 models.MurojaahItem.member_id == member.id,
                 models.MurojaahItem.completed.is_(False),
-                models.MemberSurahProgress.status == models.SurahProgressStatus.passed,
                 models.MurojaahItem.due_date <= today,
             )
             .order_by(models.MurojaahItem.due_date)
         )
     ).all()
-    overdue_names = [surah_name(r[0], r[1]) for r in overdue_rows]
+    overdue_names = list(dict.fromkeys(surah_name(r[0], r[1]) for r in overdue_rows))
 
     ayat_total = sum(per_day.values())
     active_days = sum(1 for v in per_day.values() if v > 0)
