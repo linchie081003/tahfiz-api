@@ -72,11 +72,11 @@ async def member_with_ziyadah(db_session: AsyncSession):
             tahsin_status=TahsinStatus.passed,
         ),
     )
+    await db_session.flush()  # induk dulu: PostgreSQL menegakkan urutan foreign key
+    db_session.add(Surah(id=114, name_ar="الناس", name_id="An-Nas", ayah_count=6, juz_number=30, curriculum_order=1))
+    await db_session.flush()
     db_session.add(MemberStats(member_id=member_id, xp=0, level=1, streak_days=0))
     db_session.add(XpConfig(activity_key="setoran_lulus", xp_value=30, label="Setoran lulus"))
-    db_session.add(
-        Surah(id=114, name_ar="الناس", name_id="An-Nas", ayah_count=6, juz_number=30, curriculum_order=1),
-    )
     db_session.add(
         MemberSurahProgress(
             member_id=member_id,
