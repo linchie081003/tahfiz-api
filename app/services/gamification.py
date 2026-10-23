@@ -16,6 +16,8 @@ REFERENCE_XP = [
     ("murojaah_done", 15, "Murojaah selesai"),
     ("tahsin_lulus", 50, "Tahsin lulus"),
     ("daily_activity", 5, "Aktivitas harian"),
+    ("sambung_benar", 3, "Sambung ayat benar"),
+    ("sambung_selesai", 2, "Sambung ayat selesai"),
 ]
 
 

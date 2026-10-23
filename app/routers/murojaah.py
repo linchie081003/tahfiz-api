@@ -49,6 +49,15 @@ async def sesi(
         await db.execute(select(models.MurojaahItem.id).where(models.MurojaahItem.member_id == member_id).limit(1))
     ).first() is not None
     items = await murojaah.due_items(db, member_id, 50)
+    from app.services import tanda
+
+    marked = {(m.surah_id, m.ayah_number) for m in await tanda.active_marks(db, member_id)}
+
+    def has_mark(it):
+        return any((it.surah_id, n) in marked for n in range(it.ayah_start or 1, (it.ayah_end or it.ayah_start or 1) + 1))
+
+    # prioritas: lemah, lalu ayat bertanda, lalu yang paling lama jatuh tempo
+    items = sorted(items, key=lambda it: (-it.weak_score, not has_mark(it), it.due_date))
     chosen = murojaah.pick_for_session(items)
     blocks = []
     for b in murojaah.to_blocks(chosen):
