@@ -40,6 +40,12 @@ class Settings(BaseSettings):
     stt_whisper_model: str = "base"  # faster-whisper: tiny, base, small, medium, …
     stt_whisper_device: str = "cpu"  # cpu | cuda
     stt_timeout_seconds: float = 60.0
+    # Antrean pra-cek (tabel stt_jobs)
+    stt_job_max_attempts: int = 4
+    stt_job_timeout_seconds: float = 150.0  # batas satu percobaan, termasuk percobaan ulang HTTP di dalamnya
+    stt_job_backoff_seconds: float = 30.0  # jeda percobaan ke-2; berlipat tiap gagal
+    stt_job_backoff_max_seconds: float = 900.0
+    stt_inline_worker: bool = True  # jalankan pekerja di proses API (wajib bila rekaman di disk lokal)
     # Pengingat
     reminder_timezone: str = "Asia/Jakarta"
     rate_limit_enabled: bool = True

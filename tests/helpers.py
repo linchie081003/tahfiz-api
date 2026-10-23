@@ -26,3 +26,16 @@ async def make_teacher(db, email=None):
     db.add(t)
     await db.flush()
     return t.id
+
+
+async def run_stt_jobs(limit: int = 10) -> dict:
+    """Jalankan pekerja pra-cek satu putaran pada database tes yang dipakai klien API."""
+    from app.database import get_db
+    from app.main import app
+    from app.services import stt_queue
+
+    gen = app.dependency_overrides[get_db]()
+    db = await gen.__anext__()
+    stats = await stt_queue.process_due(db, limit=limit)
+    await db.commit()
+    return stats

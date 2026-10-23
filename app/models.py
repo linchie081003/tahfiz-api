@@ -705,3 +705,22 @@ class DailySessionActivity(Base):
     activity_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
     ayah: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class SttJob(Base):
+    """Antrean pra-cek STT yang tahan restart. Satu pekerjaan per setoran (idempoten); gagal sementara dicoba ulang
+    dengan jeda bertambah, gagal permanen/kehabisan percobaan berstatus failed dan bisa diantrekan ulang."""
+
+    __tablename__ = "stt_jobs"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    submission_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("submissions.id"), unique=True, index=True)
+    status: Mapped[str] = mapped_column(String(12), default="queued", index=True)  # queued | processing | done | failed
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    max_attempts: Mapped[int] = mapped_column(Integer, default=4)
+    next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

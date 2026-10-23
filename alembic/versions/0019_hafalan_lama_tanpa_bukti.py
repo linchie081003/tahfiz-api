@@ -40,6 +40,15 @@ def upgrade() -> None:
                note = COALESCE(r.note, 'Hasil migrasi tanpa bukti penilaian lulus; perlu verifikasi manual')
         WHERE {cond}
     """))
+    # Progres surat tidak boleh lebih maju dari bukti: turunkan surat lulus / posisi ayat yang bertumpu pada rentang unverified.
+    bind.execute(sa.text("""
+        UPDATE member_surah_progress p SET
+            current_ayah = LEAST(p.current_ayah, u.first_ayah),
+            status = CASE WHEN p.status = 'passed' THEN 'in_progress' ELSE p.status END
+        FROM (SELECT member_id, surah_id, MIN(ayah_start) AS first_ayah
+              FROM memorized_ranges WHERE status = 'unverified' GROUP BY member_id, surah_id) u
+        WHERE p.member_id = u.member_id AND p.surah_id = u.surah_id
+    """))
 
 
 def downgrade() -> None:

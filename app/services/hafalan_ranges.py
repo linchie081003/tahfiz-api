@@ -300,6 +300,28 @@ async def backfill_member(db: AsyncSession, member_id: uuid.UUID) -> dict:
             )
     await db.flush()
 
+    # Progres surat tidak boleh lebih maju dari bukti: surat/posisi yang bertumpu pada rentang unverified diturunkan.
+    for p in progs:
+        unv = (
+            await db.execute(
+                select(models.MemorizedRange.ayah_start).where(
+                    models.MemorizedRange.member_id == member_id,
+                    models.MemorizedRange.surah_id == p.surah_id,
+                    models.MemorizedRange.status == "unverified",
+                )
+            )
+        ).scalars().all()
+        if not unv:
+            continue
+        changed = False
+        if p.current_ayah > min(unv):
+            p.current_ayah, changed = min(unv), True
+        if p.status == models.SurahProgressStatus.passed:
+            p.status, changed = models.SurahProgressStatus.in_progress, True
+        if changed:
+            bump("progress_reset")
+    await db.flush()
+
     # Penugasan penilai pertama dari tautan guru aktif, selain itu orang tua.
     if not await current_assignment(db, member_id):
         link = (

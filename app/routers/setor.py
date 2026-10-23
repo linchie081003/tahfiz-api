@@ -1,7 +1,6 @@
 import uuid
 from datetime import datetime, timezone
 
-import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
@@ -13,7 +12,7 @@ from app.config import settings
 from app.database import get_db
 from app.deps import AuthContext, get_current_context, require_member_id, require_parent
 from app.services import corrections, daily_sessions, escalation, hafalan_ranges, setor_flow, storage, tahsin_points, teaching
-from app.services import stt
+from app.services import stt, stt_queue
 from app.services.ai_analysis import analyze_recording, unavailable
 from app.services.quran_display import ayah_range_texts
 
@@ -27,19 +26,13 @@ async def stream_recording(submission_id: uuid.UUID, ctx: AuthContext = Depends(
         raise HTTPException(404, "Rekaman tidak ditemukan")
     if ctx.role not in ("parent", "child") or sub.recording_deleted_at is not None:
         raise HTTPException(404, "Rekaman tidak tersedia")
+    # Pemilik rekaman: orang tua keluarga itu, atau anak yang menyetor. Saudara satu keluarga tidak boleh mendengar.
+    if ctx.role == "child" and sub.member_id != ctx.member_id:
+        raise HTTPException(404, "Rekaman tidak ditemukan")
     path = storage.local_recording_path(sub.family_id, sub.id)
     if not path.is_file():
         raise HTTPException(404, "File rekaman tidak ada")
     return FileResponse(path, media_type="audio/webm")
-
-
-async def _enqueue_ai(submission_id: str):
-    try:
-        r = aioredis.from_url(settings.redis_url)
-        await r.lpush("hafiz:ai_jobs", submission_id)
-        await r.aclose()
-    except Exception:
-        pass
 
 
 @router.post("", response_model=schemas.SubmissionCreateOut)
@@ -101,44 +94,24 @@ async def create_submission(
         member.tahsin_status = models.TahsinStatus.pending_eval
     if context == models.SubmissionContext.ziyadah:
         await daily_sessions.mark_completed(db, member, "sesi2", activity_type="submission", activity_id=sub.id)
-    await _process_ai_inline(db, sub, data, file.content_type or "audio/webm")
+    await _schedule_precheck(db, sub, stored=bool(data))
     return schemas.SubmissionCreateOut(id=sub.id, status=sub.status, ai_status=sub.ai_status)
 
 
-async def _family_consented(db: AsyncSession, family_id: uuid.UUID) -> bool:
-    row = (
-        await db.execute(select(models.FamilyAiConsent).where(models.FamilyAiConsent.family_id == family_id))
-    ).scalar_one_or_none()
-    return row is not None
-
-
-async def _process_ai_inline(db: AsyncSession, sub: models.Submission, audio: bytes, content_type: str):
-    """Pra-cek: hanya bila STT aktif DAN keluarga setuju. Selain itu dinyatakan tidak tersedia."""
-    markup = None
-    if sub.surah_id and sub.ayah_start:
-        ayah = (
-            await db.execute(
-                select(models.Ayah).where(models.Ayah.surah_id == sub.surah_id, models.Ayah.ayah_number == sub.ayah_start)
-            )
-        ).scalar_one_or_none()
-        markup = ayah.tajwid_markup if ayah else None
-    transcript = None
-    reason = "disabled"
-    if stt.is_configured() and await _family_consented(db, sub.family_id):
-        stt_result = await stt.transcribe(audio, content_type, reference_hint=sub.reference_text)
-        transcript = stt_result.text
-        reason = stt_result.failure or "no_transcript"
-    elif stt.is_configured():
-        reason = "no_consent"
-    insights = (
-        analyze_recording(reference_text=sub.reference_text, tajwid_markup=markup, transcript=transcript)
-        if transcript
-        else unavailable(reason)
-    )
-    sub.ai_insights = insights
-    sub.ai_status = "completed"
-    if sub.status == models.SubmissionStatus.pending_ai:  # jangan menghidupkan kembali setoran yang sudah digantikan
-        sub.status = models.SubmissionStatus.pending_eval
+async def _schedule_precheck(db: AsyncSession, sub: models.Submission, *, stored: bool, force: bool = False) -> None:
+    """Pra-cek berjalan di antrean (tidak menahan penilaian). Tanpa STT/izin/rekaman, langsung dinyatakan tidak tersedia."""
+    if sub.status == models.SubmissionStatus.pending_ai:
+        sub.status = models.SubmissionStatus.pending_eval  # penilaian tidak menunggu pra-cek
+    if not stt.is_configured():
+        sub.ai_insights, sub.ai_status = unavailable("disabled"), "completed"
+    elif not await stt_queue.has_consent(db, sub.family_id):
+        sub.ai_insights, sub.ai_status = unavailable("no_consent"), "completed"  # suara tidak dikirim tanpa persetujuan
+    elif not stored:
+        sub.ai_insights, sub.ai_status = unavailable("empty_audio"), "completed"
+    else:
+        if force:
+            sub.ai_status = "queued"
+        await stt_queue.enqueue(db, sub, force=force)
 
 
 @router.post("/{submission_id}/reprocess-precheck", response_model=schemas.SubmissionOut)
@@ -153,11 +126,9 @@ async def reprocess_precheck(
         raise HTTPException(404, "Setoran tidak ditemukan")
     if sub.status != models.SubmissionStatus.pending_eval:
         raise HTTPException(409, "Setoran sudah dinilai")
-    path = storage.local_recording_path(sub.family_id, sub.id)
-    if not path.is_file():
-        raise HTTPException(404, "File rekaman tidak ada")
-    audio = path.read_bytes()
-    await _process_ai_inline(db, sub, audio, "audio/webm")
+    if sub.recording_deleted_at is not None:
+        raise HTTPException(404, "Rekaman sudah dihapus")
+    await _schedule_precheck(db, sub, stored=True, force=True)  # idempoten; mengantrekan ulang yang selesai/gagal
     member = await db.get(models.Member, sub.member_id)
     return schemas.SubmissionOut(
         id=sub.id,

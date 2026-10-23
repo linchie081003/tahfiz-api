@@ -33,8 +33,15 @@ async def lifespan(app: FastAPI):
     from app.services import stt
 
     warm = asyncio.create_task(stt.preload())  # unduh dan muat model Whisper di latar belakang
+    worker = None
+    if settings.stt_enabled and settings.stt_inline_worker:
+        from app.services import stt_queue
+
+        worker = asyncio.create_task(stt_queue.run_forever())  # antrean pra-cek (tabel stt_jobs) di proses ini
     yield
     warm.cancel()
+    if worker:
+        worker.cancel()
 
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
