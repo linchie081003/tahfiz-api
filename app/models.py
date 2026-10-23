@@ -183,6 +183,7 @@ class Submission(Base):
     ayah_start: Mapped[int | None] = mapped_column(Integer, nullable=True)
     ayah_end: Mapped[int | None] = mapped_column(Integer, nullable=True)
     reference_text: Mapped[str] = mapped_column(Text)
+    tahsin_point: Mapped[int | None] = mapped_column(Integer, nullable=True)  # nomor Pulau untuk latihan Tahsin
     recording_key: Mapped[str] = mapped_column(String(512))
     recording_deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     status: Mapped[SubmissionStatus] = mapped_column(Enum(SubmissionStatus, native_enum=False), default=SubmissionStatus.pending_ai)

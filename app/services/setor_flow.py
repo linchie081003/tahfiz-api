@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import models, schemas
 from app.models import SubmissionContext, SubmissionStatus, SurahProgressStatus, TahsinStatus
-from app.services import gamification, hafalan_ranges, murojaah, progress, sesi3
+from app.services import gamification, hafalan_ranges, murojaah, progress, sesi3, tahsin_points
 
 
 async def assert_ziyadah_setor_allowed(
@@ -99,7 +99,20 @@ async def apply_submission_evaluation(
             await murojaah.schedule_for_range(db, rng)
 
     if sub.context == SubmissionContext.tahsin:
-        if payload.status == SubmissionStatus.passed:
+        if sub.tahsin_point:
+            # Latihan per Pulau: kelulusan dicatat ke Pulau itu; gerbang Hafalan terbuka bila Pulau 1-3 lulus semua.
+            was_passed = (await tahsin_points._rows(db, member.id)).get(sub.tahsin_point)
+            if payload.status == SubmissionStatus.passed:
+                await tahsin_points.record_result(
+                    db, member, sub.tahsin_point, tahsin_points.PASS_THRESHOLD, evaluator_role, evaluator_id, enforce_order=False,
+                )
+                if not (was_passed and was_passed.passed):
+                    await gamification.add_xp(db, member.id, "tahsin_lulus")
+                if member.tahsin_status != TahsinStatus.passed:
+                    member.tahsin_status = TahsinStatus.not_started  # belum semua Pulau wajib lulus
+            elif member.tahsin_status != TahsinStatus.passed:
+                member.tahsin_status = TahsinStatus.failed
+        elif payload.status == SubmissionStatus.passed:
             member.tahsin_status = TahsinStatus.passed
             await gamification.add_xp(db, member.id, "tahsin_lulus")
         else:
