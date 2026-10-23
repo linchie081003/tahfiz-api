@@ -26,7 +26,10 @@ async def due_items(db: AsyncSession, member_id: uuid.UUID, cap: int) -> list[Mu
     today = date.today()
     q = (
         select(MurojaahItem)
-        .where(MurojaahItem.member_id == member_id, MurojaahItem.completed.is_(False), MurojaahItem.due_date <= today)
+        # Murajaah hanya untuk surat yang sudah hafal lengkap dan dinyatakan lulus (oleh guru atau orang tua).
+        .join(MemberSurahProgress, (MemberSurahProgress.member_id == MurojaahItem.member_id) & (MemberSurahProgress.surah_id == MurojaahItem.surah_id))
+        .where(MurojaahItem.member_id == member_id, MurojaahItem.completed.is_(False), MurojaahItem.due_date <= today,
+               MemberSurahProgress.status == SurahProgressStatus.passed)
         .order_by(MurojaahItem.weak_score.desc(), MurojaahItem.due_date)
         .limit(cap)
     )

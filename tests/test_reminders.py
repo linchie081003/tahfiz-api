@@ -1,3 +1,4 @@
+from sqlalchemy import select
 from datetime import date, datetime, timedelta, timezone
 
 from app import models
@@ -15,6 +16,8 @@ async def _setup(db, member, *, due=True, parent_sub=True):
     db.add(models.MemberPushSubscription(member_id=member.id, endpoint_hash="h1", endpoint="https://push/child", p256dh="k", auth="a"))
     if parent_sub:
         db.add(models.PushSubscription(parent_user_id=pu.id, endpoint="https://push/parent", p256dh="k", auth="a"))
+    prog = (await db.execute(select(models.MemberSurahProgress).where(models.MemberSurahProgress.member_id == member.id))).scalar_one()
+    prog.status = models.SurahProgressStatus.passed  # murajaah hanya untuk surat yang sudah lulus
     if due:
         db.add(models.MurojaahItem(member_id=member.id, surah_id=114, due_date=date(2026, 10, 20), completed=False))
     await db.flush()

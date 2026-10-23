@@ -1,3 +1,4 @@
+from sqlalchemy import select
 import uuid
 from datetime import date, datetime, timedelta, timezone
 
@@ -45,6 +46,8 @@ async def test_weekly_report_counts_only_last_7_days_and_passed(db_session, memb
 async def test_weekly_report_lists_overdue_murojaah(db_session, member_with_ziyadah):
     member = member_with_ziyadah
     today = date(2026, 10, 20)
+    prog = (await db_session.execute(select(MemberSurahProgress).where(MemberSurahProgress.member_id == member.id))).scalar_one()
+    prog.status = SurahProgressStatus.passed  # murajaah hanya untuk surat yang sudah lulus
     db_session.add(MurojaahItem(member_id=member.id, surah_id=114, due_date=today - timedelta(days=1), completed=False))
     db_session.add(MurojaahItem(member_id=member.id, surah_id=114, due_date=today + timedelta(days=3), completed=False))
     await db_session.flush()

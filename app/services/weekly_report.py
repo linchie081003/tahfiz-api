@@ -76,9 +76,11 @@ async def build_weekly_report(db: AsyncSession, family_id: uuid.UUID, member: mo
         await db.execute(
             select(models.Surah.id, models.Surah.name_id)
             .join(models.MurojaahItem, models.MurojaahItem.surah_id == models.Surah.id)
+            .join(models.MemberSurahProgress, (models.MemberSurahProgress.member_id == models.MurojaahItem.member_id) & (models.MemberSurahProgress.surah_id == models.MurojaahItem.surah_id))
             .where(
                 models.MurojaahItem.member_id == member.id,
                 models.MurojaahItem.completed.is_(False),
+                models.MemberSurahProgress.status == models.SurahProgressStatus.passed,
                 models.MurojaahItem.due_date <= today,
             )
             .order_by(models.MurojaahItem.due_date)
