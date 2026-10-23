@@ -509,9 +509,15 @@ class MemorizedRange(Base):
     surah_id: Mapped[int] = mapped_column(ForeignKey("surahs.id"), index=True)
     ayah_start: Mapped[int] = mapped_column(Integer)
     ayah_end: Mapped[int] = mapped_column(Integer)
-    status: Mapped[str] = mapped_column(String(16), default="passed")  # passed | superseded
+    # passed | superseded | unverified (data lama tanpa bukti penilaian, menunggu verifikasi manual) | rejected
+    # Hanya "passed" dihitung sebagai hafalan lulus (progres, murajaah, lencana, dasbor).
+    status: Mapped[str] = mapped_column(String(16), default="passed")
     submission_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("submissions.id"), nullable=True)
-    source: Mapped[str] = mapped_column(String(16), default="evaluation")  # evaluation | migration
+    source: Mapped[str] = mapped_column(String(16), default="evaluation")  # evaluation | migration | verified
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)  # alasan unverified / dasar verifikasi manual
+    verified_by: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    verified_role: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -699,3 +705,22 @@ class DailySessionActivity(Base):
     activity_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
     ayah: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class SttJob(Base):
+    """Antrean pra-cek STT yang tahan restart. Satu pekerjaan per setoran (idempoten); gagal sementara dicoba ulang
+    dengan jeda bertambah, gagal permanen/kehabisan percobaan berstatus failed dan bisa diantrekan ulang."""
+
+    __tablename__ = "stt_jobs"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    submission_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("submissions.id"), unique=True, index=True)
+    status: Mapped[str] = mapped_column(String(12), default="queued", index=True)  # queued | processing | done | failed
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    max_attempts: Mapped[int] = mapped_column(Integer, default=4)
+    next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

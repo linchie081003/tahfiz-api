@@ -77,10 +77,13 @@ async def test_backfill_is_idempotent_and_covers_old_progress(db_session):
     prog.status = SurahProgressStatus.passed  # data lama: surat lulus tanpa riwayat setoran
     await db.flush()
     first = await hafalan_ranges.backfill_member(db, m.id)
-    assert first["ranges"] == 1 and first["assignments"] == 1
+    assert first["unverified"] == 1 and first["assignments"] == 1 and first["ranges"] == 0
     second = await hafalan_ranges.backfill_member(db, m.id)
     assert second == {"ranges": 0, "evaluations": 0, "assignments": 0}
-    assert await hafalan_ranges.covered_ayahs(db, m.id, 78) == set(range(1, 41))
+    # surat lulus tanpa bukti penilaian BUKAN hafalan lulus: menunggu verifikasi manual
+    assert await hafalan_ranges.covered_ayahs(db, m.id, 78) == set()
+    r = (await db.execute(select(models.MemorizedRange))).scalar_one()
+    assert r.status == "unverified" and (r.ayah_start, r.ayah_end) == (1, 40) and r.note
 
 
 async def test_backfill_partial_progress_and_old_evaluation(db_session):

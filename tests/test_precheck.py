@@ -2,7 +2,7 @@ import pytest
 
 from app.services import stt
 from app.services.ai_analysis import analyze_recording
-from tests.helpers import H, add_child, register
+from tests.helpers import H, add_child, register, run_stt_jobs
 
 AYAT = "قُلْ أَعُوذُ بِرَبِّ النَّاسِ"
 
@@ -34,6 +34,7 @@ def fake_stt(monkeypatch):
     monkeypatch.setattr(stt, "is_configured", lambda: True)
     monkeypatch.setattr(stt, "transcribe", fake)
     monkeypatch.setattr("app.services.storage.upload_recording", lambda *a, **k: "k")
+    monkeypatch.setattr("app.services.storage.read_recording", lambda *a, **k: b"x" * 5000)
     return calls
 
 
@@ -68,7 +69,10 @@ async def test_with_consent_precheck_runs_and_can_be_revoked(client, fake_stt):
     ctok = await _child_token(client, reg, cid)
     await client.post("/family/consent/recording", json={"granted": True}, headers=H(tok))
     assert (await client.put("/settings/ai-consent", json={"granted": True}, headers=H(tok))).json()["granted"] is True
-    assert (await _submit(client, ctok)).status_code == 200
+    r = await _submit(client, ctok)
+    assert r.status_code == 200 and r.json()["ai_status"] == "queued" and r.json()["status"] == "pending_eval"
+    assert fake_stt == []  # belum diproses: pra-cek di antrean, penilaian tidak menunggu
+    assert (await run_stt_jobs())["done"] == 1
     assert fake_stt == [5000]
     q = (await client.get("/setor/queue", headers=H(tok))).json()
     assert q[0]["ai_insights"]["available"] is True and q[0]["ai_insights"]["summaryPercent"] == 100

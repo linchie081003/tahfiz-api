@@ -44,7 +44,7 @@ async def record_evaluation(
 
 async def record_passed_range(
     db: AsyncSession, sub: models.Submission, *, source: str = "evaluation",
-    ayah_start: int | None = None, ayah_end: int | None = None,
+    ayah_start: int | None = None, ayah_end: int | None = None, status: str = "passed", note: str | None = None,
 ) -> models.MemorizedRange | None:
     """Catat rentang lulus dari setoran ziyadah. Idempoten per setoran dan rentang.
 
@@ -72,6 +72,8 @@ async def record_passed_range(
         ayah_end=b,
         submission_id=sub.id,
         source=source,
+        status=status,
+        note=note,
     )
     db.add(rng)
     await db.flush()
@@ -169,10 +171,79 @@ def merged_view(ranges: list[tuple[int, int]]) -> list[tuple[int, int]]:
     return [(a, b) for a, b in out]
 
 
+def _has_evaluation_proof(s: models.Submission) -> bool:
+    """Bukti sah: setoran bertanda lulus DAN tercatat waktu penilaiannya."""
+    return s.status == models.SubmissionStatus.passed and s.evaluated_at is not None
+
+
+async def _represented_ayahs(db: AsyncSession, member_id: uuid.UUID, surah_id: int) -> set[int]:
+    """Ayat yang sudah punya rentang dalam status apa pun (kecuali superseded/rejected tetap dianggap sudah diputuskan)."""
+    rows = (
+        await db.execute(
+            select(models.MemorizedRange).where(models.MemorizedRange.member_id == member_id, models.MemorizedRange.surah_id == surah_id)
+        )
+    ).scalars().all()
+    out: set[int] = set()
+    for r in rows:
+        out.update(range(r.ayah_start, r.ayah_end + 1))
+    return out
+
+
+async def _unverified_gaps(
+    db: AsyncSession, member_id: uuid.UUID, surah_id: int, upto: int, note: str,
+) -> int:
+    covered = await _represented_ayahs(db, member_id, surah_id)
+    missing = [a for a in range(1, upto + 1) if a not in covered]
+    n = 0
+    for a, b in merged_view([(x, x) for x in missing]):
+        db.add(models.MemorizedRange(member_id=member_id, surah_id=surah_id, ayah_start=a, ayah_end=b, source="migration", status="unverified", note=note))
+        n += 1
+    return n
+
+
+async def reclassify_unverified(db: AsyncSession, member_id: uuid.UUID) -> int:
+    """Rentang hasil migrasi yang berstatus passed tetapi tanpa bukti penilaian lulus diturunkan ke unverified.
+
+    Jadwal murajaah terbuka untuk rentang itu dihentikan sampai terverifikasi. Rentang dari evaluasi nyata tidak disentuh.
+    """
+    rows = (
+        await db.execute(
+            select(models.MemorizedRange).where(
+                models.MemorizedRange.member_id == member_id,
+                models.MemorizedRange.source == "migration",
+                models.MemorizedRange.status == "passed",
+            )
+        )
+    ).scalars().all()
+    n = 0
+    for r in rows:
+        sub = await db.get(models.Submission, r.submission_id) if r.submission_id else None
+        if sub is not None and _has_evaluation_proof(sub):
+            continue
+        r.status = "unverified"
+        r.note = r.note or "Hasil migrasi tanpa bukti penilaian lulus; perlu verifikasi manual"
+        for it in (
+            await db.execute(select(models.MurojaahItem).where(models.MurojaahItem.range_id == r.id, models.MurojaahItem.completed.is_(False)))
+        ).scalars().all():
+            it.completed = True
+        n += 1
+    await db.flush()
+    return n
+
+
 async def backfill_member(db: AsyncSession, member_id: uuid.UUID) -> dict:
-    """Isi tabel baru dari data lama untuk satu anak. Aman dijalankan berulang."""
+    """Isi tabel baru dari data lama untuk satu anak. Aman dijalankan berulang.
+
+    Hanya data dengan bukti penilaian lulus yang menjadi `passed`. Posisi ayat (current_ayah) dan status surat tanpa
+    riwayat setoran tidak membuktikan kelulusan, jadi menjadi rentang `unverified` untuk diverifikasi manual.
+    """
     made = {"ranges": 0, "evaluations": 0, "assignments": 0}
 
+    def bump(key: str, n: int = 1):
+        if n:
+            made[key] = made.get(key, 0) + n
+
+    bump("reclassified", await reclassify_unverified(db, member_id))
     subs = (
         await db.execute(select(models.Submission).where(models.Submission.member_id == member_id))
     ).scalars().all()
@@ -200,10 +271,16 @@ async def backfill_member(db: AsyncSession, member_id: uuid.UUID) -> dict:
                 await db.execute(select(models.MemorizedRange.id).where(models.MemorizedRange.submission_id == s.id))
             ).first()
             if not before:
-                await record_passed_range(db, s, source="migration")
+                if _has_evaluation_proof(s):
+                    await record_passed_range(db, s, source="migration")
+                else:
+                    await record_passed_range(
+                        db, s, source="migration", status="unverified",
+                        note="Setoran bertanda lulus tetapi tanpa catatan waktu penilaian; perlu verifikasi manual",
+                    )
                 made["ranges"] += 1
 
-    # Surat lulus tanpa riwayat setoran (data lama/seed): satu rentang penuh.
+    # Surat lulus / posisi ayat tanpa bukti penilaian: bukan bukti kelulusan -> unverified.
     progs = (
         await db.execute(select(models.MemberSurahProgress).where(models.MemberSurahProgress.member_id == member_id))
     ).scalars().all()
@@ -212,17 +289,38 @@ async def backfill_member(db: AsyncSession, member_id: uuid.UUID) -> dict:
         if not surah:
             continue
         if p.status == models.SurahProgressStatus.passed:
-            covered = await covered_ayahs(db, member_id, p.surah_id)
-            missing = [a for a in range(1, surah.ayah_count + 1) if a not in covered]
-            for a, b in merged_view([(x, x) for x in missing]):
-                db.add(models.MemorizedRange(member_id=member_id, surah_id=p.surah_id, ayah_start=a, ayah_end=b, source="migration"))
-                made["ranges"] += 1
+            bump("unverified", await _unverified_gaps(db, member_id, p.surah_id, surah.ayah_count, "Surat berstatus lulus di data lama tanpa riwayat penilaian; perlu verifikasi manual"))
         elif p.current_ayah and p.current_ayah > 1:
-            covered = await covered_ayahs(db, member_id, p.surah_id)
-            missing = [a for a in range(1, min(p.current_ayah - 1, surah.ayah_count) + 1) if a not in covered]
-            for a, b in merged_view([(x, x) for x in missing]):
-                db.add(models.MemorizedRange(member_id=member_id, surah_id=p.surah_id, ayah_start=a, ayah_end=b, source="migration"))
-                made["ranges"] += 1
+            bump(
+                "unverified",
+                await _unverified_gaps(
+                    db, member_id, p.surah_id, min(p.current_ayah - 1, surah.ayah_count),
+                    f"Posisi ayat {p.current_ayah} di data lama tanpa riwayat penilaian lulus untuk ayat sebelumnya; perlu verifikasi manual",
+                ),
+            )
+    await db.flush()
+
+    # Progres surat tidak boleh lebih maju dari bukti: surat/posisi yang bertumpu pada rentang unverified diturunkan.
+    for p in progs:
+        unv = (
+            await db.execute(
+                select(models.MemorizedRange.ayah_start).where(
+                    models.MemorizedRange.member_id == member_id,
+                    models.MemorizedRange.surah_id == p.surah_id,
+                    models.MemorizedRange.status == "unverified",
+                )
+            )
+        ).scalars().all()
+        if not unv:
+            continue
+        changed = False
+        if p.current_ayah > min(unv):
+            p.current_ayah, changed = min(unv), True
+        if p.status == models.SurahProgressStatus.passed:
+            p.status, changed = models.SurahProgressStatus.in_progress, True
+        if changed:
+            bump("progress_reset")
+    await db.flush()
 
     # Penugasan penilai pertama dari tautan guru aktif, selain itu orang tua.
     if not await current_assignment(db, member_id):
@@ -242,7 +340,7 @@ async def backfill_member(db: AsyncSession, member_id: uuid.UUID) -> dict:
             )
         )
         made["assignments"] += 1
-    # Jadwal murajaah: item lama dinormalkan jadi rentang, rentang lulus yang belum terjadwal diberi jadwal.
+    # Jadwal murajaah: item lama dinormalkan jadi rentang, hanya rentang lulus yang diberi jadwal.
     await murojaah.normalize_legacy_items(db, member_id)
     for r in (
         await db.execute(
@@ -250,7 +348,7 @@ async def backfill_member(db: AsyncSession, member_id: uuid.UUID) -> dict:
         )
     ).scalars().all():
         if await murojaah.schedule_for_range(db, r):
-            made["schedules"] = made.get("schedules", 0) + 1
+            bump("schedules")
     await db.flush()
     return made
 
@@ -261,5 +359,5 @@ async def backfill_all(db: AsyncSession) -> dict:
     for mid in ids:
         r = await backfill_member(db, mid)
         for k, v in r.items():
-            total[k] += v
+            total[k] = total.get(k, 0) + v
     return total

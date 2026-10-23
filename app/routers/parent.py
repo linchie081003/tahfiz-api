@@ -9,7 +9,7 @@ from app.services.surah_translit import surah_name
 from app import models, schemas
 from app.database import get_db
 from app.deps import AuthContext, require_parent
-from app.services import gamification, murojaah, progress, weekly_report
+from app.services import gamification, murojaah, progress, verification, weekly_report
 
 router = APIRouter(prefix="/parent", tags=["parent"])
 
@@ -91,6 +91,7 @@ async def parent_dashboard(ctx: AuthContext = Depends(require_parent), db: Async
                 hafalan_line=hafalan_line,
                 murajaah_due=len(due),
                 murajaah_surah=due_name,
+                unverified_ranges=await verification.count_pending(db, m.id),
             )
         )
 

@@ -47,6 +47,20 @@ def local_recording_path(family_id: uuid.UUID, submission_id: uuid.UUID) -> Path
     return _local_dir() / f"{family_id}_{submission_id}.webm"
 
 
+def read_recording(family_id: uuid.UUID, submission_id: uuid.UUID) -> bytes | None:
+    """Baca audio rekaman (lokal atau S3). None bila tidak ada."""
+    path = local_recording_path(family_id, submission_id)
+    if path.is_file():
+        return path.read_bytes()
+    if settings.use_local_storage:
+        return None
+    try:
+        obj = _client().get_object(Bucket=settings.s3_bucket, Key=f"recordings/{family_id}/{submission_id}.webm")
+        return obj["Body"].read()
+    except Exception:
+        return None
+
+
 def presigned_recording_url(key: str, family_id: uuid.UUID | None = None, submission_id: uuid.UUID | None = None) -> str:
     if settings.use_local_storage and family_id and submission_id:
         return f"{settings.api_public_base.rstrip('/')}/setor/media/{submission_id}"
