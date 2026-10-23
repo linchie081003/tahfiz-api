@@ -44,3 +44,10 @@ Satu kolom baru. Lewat SQL Editor Supabase, sebelum deploy:
 ALTER TABLE member_settings ADD COLUMN IF NOT EXISTS placement VARCHAR(16);
 ```
 Atau `alembic upgrade head`.
+
+## Migrasi otomatis saat deploy
+API menjalankan `alembic upgrade head` sendiri saat start (hanya PostgreSQL; `AUTO_MIGRATE=false` untuk mematikan).
+- Aman untuk database lama buatan `create_all` (tanpa tabel `alembic_version`): semua migrasi idempoten.
+- Aman bila beberapa instance start bersamaan: dijaga kunci advisory PostgreSQL.
+- Bila migrasi gagal, start gagal (Render mempertahankan deploy lama) dan penyebabnya ada di log.
+- Koneksi database harus punya hak DDL (di Supabase, user `postgres`).

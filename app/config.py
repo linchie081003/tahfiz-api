@@ -45,6 +45,7 @@ class Settings(BaseSettings):
     stt_job_timeout_seconds: float = 150.0  # batas satu percobaan, termasuk percobaan ulang HTTP di dalamnya
     stt_job_backoff_seconds: float = 30.0  # jeda percobaan ke-2; berlipat tiap gagal
     stt_job_backoff_max_seconds: float = 900.0
+    auto_migrate: bool = True  # jalankan alembic upgrade head saat start (PostgreSQL saja)
     stt_inline_worker: bool = True  # jalankan pekerja di proses API (wajib bila rekaman di disk lokal)
     # Pengingat
     reminder_timezone: str = "Asia/Jakarta"

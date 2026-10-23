@@ -10,6 +10,10 @@ from app.routers import auth, family, gamify, member_progress, privacy, teacher,
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    if settings.auto_migrate:
+        from app.migrate import run_migrations
+
+        await run_migrations()  # gagal = start gagal, agar tidak berjalan dengan skema yang salah
     try:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
