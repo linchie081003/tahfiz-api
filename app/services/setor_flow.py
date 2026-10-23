@@ -27,9 +27,10 @@ async def assert_ziyadah_setor_allowed(
         raise HTTPException(409, "Selesaikan Tahsin dulu")
 
     active = await progress.get_active_surah(db, member.id)
-    if not active or active.surah_id != surah_id:
-        raise HTTPException(409, "Hanya surat aktif di peta yang boleh disetor")
-
+    if not active:
+        # Belum ada surat aktif (mis. jalur baru atau data lama): susun ulang dari jalur hafalan anak.
+        await progress.set_track(db, member.id, await progress.effective_track(db, member.id))
+        active = await progress.get_active_surah(db, member.id)
     prog = (
         await db.execute(
             select(models.MemberSurahProgress).where(
@@ -38,8 +39,9 @@ async def assert_ziyadah_setor_allowed(
             )
         )
     ).scalar_one_or_none()
+    # Surat yang disetor harus sedang dipelajari (aktif di peta); tidak harus yang pertama jika ada lebih dari satu.
     if not prog or prog.status not in (SurahProgressStatus.in_progress, SurahProgressStatus.needs_retry):
-        raise HTTPException(409, "Surat tidak sedang dipelajari")
+        raise HTTPException(409, "Hanya surat aktif di peta yang boleh disetor")
 
     end = ayah_end if ayah_end is not None else ayah_start
     if end < ayah_start:

@@ -75,3 +75,32 @@ async def test_hafalan_track_mushaf_starts_from_fatihah(client):
     # kembali ke Juz 30
     await client.put(f"/members/{cid}/settings", headers=H(tok), json={"hafalan_track": "juz30"})
     assert (await client.get("/peta/juz/30", headers=H(child))).json()["track"] == "juz30"
+
+
+async def test_setor_allowed_for_any_in_progress_surah_and_repairs_missing_rows(client):
+    from sqlalchemy import delete
+    from app import models
+    from app.database import get_db
+    from app.main import app
+    from tests.helpers import add_child
+
+    reg = await register(client)
+    tok = reg["access_token"]
+    cid = await add_child(client, tok)
+    gen = app.dependency_overrides[get_db]()
+    db = await gen.__anext__()
+    import uuid as _uuid
+    for sid, order in ((113, 2), (114, 1)):
+        if not await db.get(models.Surah, sid):
+            db.add(models.Surah(id=sid, name_ar="x", name_id=f"S{sid}", ayah_count=5, juz_number=30, curriculum_order=order))
+    await db.commit()
+    mid = _uuid.UUID(cid)
+    # data lama tanpa baris kemajuan: harus disusun ulang, bukan ditolak
+    await db.execute(delete(models.MemberSurahProgress).where(models.MemberSurahProgress.member_id == mid))
+    await db.commit()
+    member = await db.get(models.Member, mid)
+    from app.services import setor_flow
+    await client.put(f"/members/{cid}/settings", headers=H(tok), json={"parallel_hafalan": True})
+    member = await db.get(models.Member, mid)
+    prog = await setor_flow.assert_ziyadah_setor_allowed(db, member, 114, 1, 1)
+    assert prog.surah_id == 114
